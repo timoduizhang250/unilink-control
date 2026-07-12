@@ -1,0 +1,118 @@
+# UniLink Control Master Execution Checklist
+
+Updated: 2026-07-11
+Status legend:
+
+- [x] Verified: implemented and verified at the stated level.
+- [~] Implemented / partial: code or a flow exists, but needs the listed validation or is intentionally incomplete.
+- [ ] Not started.
+
+This is the active total checklist. The filename is retained to preserve existing links.
+
+## North Star
+
+UniLink makes Windows, macOS, and Android feel like one connected personal work environment. Remote control and LAN connectivity are foundations for seamless continuation, not the product identity by themselves.
+
+## A. Product Foundation and Reliability
+
+- [~] Windows desktop UniLink can build and has been deployed before; current end-to-end regression still needs a fresh test.
+- [~] Android UniLink debug APK builds and installs; latest LAN-RDP build has been generated but not installed on the currently disconnected ADB device.
+- [~] Windows/Mac/Android device and session UI exists; all visible actions still need a systematic functional audit.
+- [~] Public RustDesk server path works for Android device discovery and a connection request to an online Windows target; final screen/input success must be re-verified with the current build.
+- [x] Android official-server WebSocket handling was changed to use secure WebSocket for RustDesk domains; focused Rust test passed.
+- [~] One-time password and online-status behavior have been improved during testing, but need regression testing across reconnects and network changes.
+- [ ] Full basic regression: Windows-to-Windows, Windows-to-Mac, Android-to-Windows, Android-to-Mac, including screen, pointer, drag, keyboard, disconnect, and reconnect.
+
+Acceptance: every supported basic path has a real device test record, not just a successful connection dialog.
+
+## B. Unified My Devices and Connection Decision
+
+- [~] "My Devices" and device list UI exist on desktop; Android device list experience is partially present.
+- [ ] Normalize device states: online, offline, connecting, permission required, client update required, and unavailable.
+- [ ] One user action chooses the best available connection: existing UniLink session, LAN direct path, or explicitly configured native system service.
+- [ ] Keep manual details such as IP, port, username, or server line behind an advanced/repair path.
+- [ ] Keep connection history meaningful and accessible without crowding the home page.
+- [ ] Audit every front-end action and remove or connect any button that has no real behavior.
+
+Acceptance: a user can select their device and understand the next action without knowing a protocol name.
+
+## C. Cross-Device Continuity
+
+- [~] Windows-to-Mac file upload via SSH/SFTP is implemented with Finder-location preference and Downloads fallback; needs current real-device regression.
+- [~] Mac-to-Windows selected-file download and Windows native drag-out are implemented. Download now rejects non-downloadable selections and does not follow remote symbolic links; true unconstrained Finder drag extraction is not implemented.
+- [~] SSH terminal and Windows SMB mount helpers are implemented; need current credential/network regression.
+- [ ] Cross-device clipboard reliability and conflict behavior.
+- [ ] Present file movement as a simple continuation workflow, with clear fallback feedback instead of protocol jargon.
+- [ ] Define and implement recent files / handoff workflow only after the transfer basics are stable.
+
+Acceptance: common file and terminal workflows continue across Windows and Mac without losing the user's place.
+
+## D. Mac Window Mode: Short-Term Working Version
+
+- [x] Enumerate visible Mac windows and activate a selected window.
+- [x] Open a separate UniLink remote window carrying target window metadata.
+- [~] Crop the remote image to the selected Mac window bounds. Implemented with local crop; Windows Release build passed. Real Mac validation remains.
+- [~] Map pointer click, drag, scroll, and keyboard input from the cropped local window back to the Mac display coordinates. Existing `remoteViewRect` input mapping is used; real Mac validation remains.
+- [~] Handle DPI, scaling, and multi-display coordinates correctly. Added display projection and multi-display geometry tests; real mixed-DPI Mac validation remains.
+- [ ] Ensure opening/closing a window-mode view does not interrupt normal remote control.
+- [ ] Real-device verify normal, zoomed, and multi-display cases.
+
+Acceptance: a pulled-out Mac window can be seen and operated accurately, with normal full-desktop remote control still intact.
+
+## E. Mac Window Mode: Mid-Term Seamless Experience
+
+- [ ] Make remote Mac windows feel native in position, title, size, focus, and lifecycle.
+- [ ] Support multiple independently controlled remote Mac windows without input crossing between them.
+- [ ] Synchronize close/minimize/hidden-state feedback.
+- [ ] Provide reliable return to full desktop and fallback on any window-mode failure.
+- [ ] Research and decide on ScreenCaptureKit single-window capture after the crop-and-map path is stable.
+
+Acceptance: a user can work with remote Mac application windows as if they had been brought onto the local desktop.
+
+## F. LAN and Native-Service Foundation
+
+- [~] Android can hand off a Windows LAN target to an installed RDP client using IP, username, and port; build passed, real-device handoff remains unverified.
+- [~] A Windows Home compatible UniLink Quick Support package can be built for a target that does not have UniLink installed; the 2026-07-11 package build and branding metadata were verified, but a real target-to-controller session still needs testing.
+- [~] Android now uses one LAN connection entry for Windows RDP and Mac VNC handoff. Android device/client handoff needs physical-device verification.
+- [x] Windows controller: probe and launch reachable macOS Screen Sharing/VNC sessions using installed/system clients. Verified 2026-07-12 with TigerVNC to `192.168.137.2:5900`. Windows RDP still needs its own real-device test.
+- [~] macOS controller: the same reachable RDP/VNC URI launcher is implemented; a macOS build and real client handoff remain.
+- [~] Android controller can hand off Mac VNC; Android UniLink LAN-direct session needs physical-device verification.
+- [ ] Android target: improve UniLink LAN discovery, permissions, status, and stable direct session verification.
+- [ ] Persist connection profiles safely; never store passwords in plain text without an approved secure-storage design.
+- [ ] Keep native-service handoffs clearly distinct from embedded UniLink sessions.
+
+Acceptance: all three UniLink platforms can initiate legitimate local-network connections to supported targets, with accurate setup and failure guidance.
+
+## G. Settings and Product UI
+
+- [~] A new glass-like Chinese UI direction and settings redesign exists in parts of the desktop app; functional parity audit remains.
+- [ ] Ensure settings window size/layout is consistent with the home surface and no content overflows.
+- [ ] Remove obsolete device shortcut/history placements only after relocating needed workflows.
+- [ ] Make every setting a real persisted toggle, real action, or honest status row.
+- [ ] Use Penpot design as reference only after its layout maps to real workflows and current components.
+- [ ] Do not start first-run onboarding until core connection and continuity flows are stable.
+
+Acceptance: the UI is coherent, Chinese-readable, responsive, and every control is functional.
+
+## H. Release, Updates, and Trust
+
+- [~] Windows/macOS automatic-update infrastructure and GitHub Release flow have been worked on; verify current release metadata and actual installed-client update behavior.
+- [ ] Establish a repeatable signed Windows release process.
+- [ ] Establish a repeatable signed/notarized macOS release process.
+- [ ] Build Android release signing, permission explanation, installation/update policy, and trusted distribution path.
+- [ ] Verify each platform checks real GitHub Release metadata and receives the intended artifact.
+- [~] Release manifest generation and publishing scripts exist, and the current `latest.json` has Windows/macOS SHA-256 values. Real signed release installation/update verification remains.
+
+Acceptance: a nontechnical user can install, trust, update, and recover each platform without guesswork.
+
+## Execution Order
+
+1. Complete Section A regression until basic remote control is demonstrably stable.
+2. Complete Section B connection decision and device states.
+3. Complete the crop-and-input portion of Section D.
+4. Complete Section C file/clipboard reliability.
+5. Build Section F unified LAN/native-service paths.
+6. Finish functional UI/settings audit in Section G.
+7. Ship release/update work in Section H.
+
+Priority override: if the user reports a failure in basic remote control, file transfer, authentication, or installation, stop feature work and repair that foundation first.

@@ -1,0 +1,57 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects { subproject ->
+    subproject.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            def jvm17Projects = ["external_path", "file_picker"]
+            jvmTarget = jvm17Projects.contains(subproject.name) ? "17" : "1.8"
+        }
+    }
+    subproject.plugins.withId("com.android.application") {
+        def androidExt = subproject.extensions.getByName("android")
+        androidExt.compileSdkVersion 36
+        androidExt.buildToolsVersion = "36.1.0"
+        androidExt.compileOptions {
+            sourceCompatibility JavaVersion.VERSION_1_8
+            targetCompatibility JavaVersion.VERSION_1_8
+        }
+    }
+    subproject.plugins.withId("com.android.library") {
+        def androidExt = subproject.extensions.getByName("android")
+        androidExt.compileSdkVersion 36
+        androidExt.buildToolsVersion = "36.1.0"
+        androidExt.compileOptions {
+            sourceCompatibility JavaVersion.VERSION_1_8
+            targetCompatibility JavaVersion.VERSION_1_8
+        }
+        if (!androidExt.namespace) {
+            def manifestFile = subproject.file("src/main/AndroidManifest.xml")
+            def namespace = null
+            if (manifestFile.exists()) {
+                def matcher = manifestFile.getText("UTF-8") =~ /package="([^"]+)"/
+                if (matcher.find()) {
+                    namespace = matcher.group(1)
+                }
+            }
+            androidExt.namespace =
+                    namespace ?: "com.unilink.control.plugin.${subproject.name.replace('-', '_')}"
+        }
+    }
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

@@ -1,0 +1,251 @@
+diff --git a/examples/webrtc.rs b/examples/webrtc.rs
+index 2c993ca..b0aac96 100644
+--- a/examples/webrtc.rs
++++ b/examples/webrtc.rs
+@@ -3,10 +3,10 @@ extern crate hbb_common;
+ #[cfg(feature = "webrtc")]
+ use hbb_common::webrtc::WebRTCStream;
+ 
+-use std::io::Write;
+ use anyhow::Result;
+ use bytes::Bytes;
+ use clap::{Arg, Command};
++use std::io::Write;
+ use tokio::time::Duration;
+ 
+ #[cfg(not(feature = "webrtc"))]
+diff --git a/src/config.rs b/src/config.rs
+index 8b8023b..f2e7e86 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -54,7 +54,7 @@ const SERIAL: i32 = 3;
+ 
+ #[cfg(target_os = "macos")]
+ lazy_static::lazy_static! {
+-    pub static ref ORG: RwLock<String> = RwLock::new("com.carriez".to_owned());
++    pub static ref ORG: RwLock<String> = RwLock::new("com.hanako".to_owned());
+ }
+ 
+ type Size = (i32, i32, i32, i32);
+@@ -69,7 +69,7 @@ lazy_static::lazy_static! {
+     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
+     pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
+     pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();
+-    pub static ref APP_NAME: RwLock<String> = RwLock::new("RustDesk".to_owned());
++    pub static ref APP_NAME: RwLock<String> = RwLock::new("UniLink Control".to_owned());
+     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
+     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
+     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
+@@ -125,6 +125,41 @@ pub const RELAY_PORT: i32 = 21117;
+ pub const WS_RENDEZVOUS_PORT: i32 = 21118;
+ pub const WS_RELAY_PORT: i32 = 21119;
+ 
++fn hanako_build_option(key: &str) -> Option<String> {
++    let value = match key {
++        keys::OPTION_CUSTOM_RENDEZVOUS_SERVER => option_env!("CONTROL_SERVER_HOST"),
++        keys::OPTION_API_SERVER => option_env!("CONTROL_API_BASE_URL"),
++        keys::OPTION_KEY => option_env!("CONTROL_SERVER_KEY"),
++        _ => None,
++    }?
++    .trim()
++    .trim_end_matches('/')
++    .to_owned();
++    if value.is_empty() {
++        None
++    } else {
++        Some(value)
++    }
++}
++
++fn apply_hanako_build_options(options: &mut HashMap<String, String>) {
++    for key in [
++        keys::OPTION_CUSTOM_RENDEZVOUS_SERVER,
++        keys::OPTION_API_SERVER,
++        keys::OPTION_KEY,
++    ] {
++        if options
++            .get(key)
++            .map(|value| value.is_empty())
++            .unwrap_or(true)
++        {
++            if let Some(value) = hanako_build_option(key) {
++                options.insert(key.to_owned(), value);
++            }
++        }
++    }
++}
++
+ #[inline]
+ pub fn is_service_ipc_postfix(postfix: &str) -> bool {
+     // `_service` is a protected cross-user IPC channel used by the root service.
+@@ -1174,12 +1209,7 @@ impl Config {
+     }
+ 
+     pub fn is_disable_change_permanent_password() -> bool {
+-        BUILTIN_SETTINGS
+-            .read()
+-            .unwrap()
+-            .get(keys::OPTION_DISABLE_CHANGE_PERMANENT_PASSWORD)
+-            .map(|v| v == "Y")
+-            .unwrap_or(false)
++        false
+     }
+ 
+     pub fn is_disable_change_id() -> bool {
+@@ -1224,6 +1254,7 @@ impl Config {
+         let mut res = DEFAULT_SETTINGS.read().unwrap().clone();
+         res.extend(CONFIG2.read().unwrap().options.clone());
+         res.extend(OVERWRITE_SETTINGS.read().unwrap().clone());
++        apply_hanako_build_options(&mut res);
+         res
+     }
+ 
+@@ -1243,13 +1274,18 @@ impl Config {
+     }
+ 
+     pub fn get_option(k: &str) -> String {
+-        get_or(
++        let value = get_or(
+             &OVERWRITE_SETTINGS,
+             &CONFIG2.read().unwrap().options,
+             &DEFAULT_SETTINGS,
+             k,
+         )
+-        .unwrap_or_default()
++        .unwrap_or_default();
++        if value.is_empty() {
++            hanako_build_option(k).unwrap_or_default()
++        } else {
++            value
++        }
+     }
+ 
+     pub fn get_bool_option(k: &str) -> bool {
+diff --git a/src/lib.rs b/src/lib.rs
+index 2b35642..e6d427b 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -58,9 +58,9 @@ pub use uuid;
+ pub mod fingerprint;
+ pub use flexi_logger;
+ pub mod stream;
+-pub mod websocket;
+ #[cfg(feature = "webrtc")]
+ pub mod webrtc;
++pub mod websocket;
+ #[cfg(any(target_os = "android", target_os = "ios"))]
+ pub use rustls_platform_verifier;
+ pub use stream::Stream;
+@@ -68,9 +68,9 @@ pub use whoami;
+ pub mod tls;
+ pub mod verifier;
+ pub use async_recursion;
++pub use libloading;
+ #[cfg(target_os = "linux")]
+ pub use users;
+-pub use libloading;
+ #[cfg(target_os = "linux")]
+ pub use x11;
+ 
+@@ -432,7 +432,10 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
+         #[cfg(debug_assertions)]
+         {
+             use env_logger::*;
+-            init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn"));
++            init_from_env(Env::default().filter_or(
++                DEFAULT_FILTER_ENV,
++                "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
++            ));
+         }
+         #[cfg(not(debug_assertions))]
+         {
+@@ -447,7 +450,9 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
+                 path.push(_name);
+             }
+             use flexi_logger::*;
+-            if let Ok(x) = Logger::try_with_env_or_str("debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn") {
++            if let Ok(x) = Logger::try_with_env_or_str(
++                "debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
++            ) {
+                 logger_holder = x
+                     .log_to_file(FileSpec::default().directory(path))
+                     .write_mode(if _is_async {
+diff --git a/src/stream.rs b/src/stream.rs
+index a8e6b6c..4b0f9a8 100644
+--- a/src/stream.rs
++++ b/src/stream.rs
+@@ -1,6 +1,6 @@
+-use crate::{config, tcp, websocket, ResultType};
+ #[cfg(feature = "webrtc")]
+ use crate::webrtc;
++use crate::{config, tcp, websocket, ResultType};
+ use sodiumoxide::crypto::secretbox::Key;
+ use std::net::SocketAddr;
+ use tokio::net::TcpStream;
+diff --git a/src/tcp.rs b/src/tcp.rs
+index 2296edb..ad5867f 100644
+--- a/src/tcp.rs
++++ b/src/tcp.rs
+@@ -1,4 +1,4 @@
+-use crate::{bail, bytes_codec::BytesCodec, ResultType, config::Socks5Server, proxy::Proxy};
++use crate::{bail, bytes_codec::BytesCodec, config::Socks5Server, proxy::Proxy, ResultType};
+ use anyhow::Context as AnyhowCtx;
+ use bytes::{BufMut, Bytes, BytesMut};
+ use futures::{SinkExt, StreamExt};
+@@ -62,7 +62,10 @@ impl DerefMut for DynTcpStream {
+     }
+ }
+ 
+-pub(crate) fn new_socket(addr: std::net::SocketAddr, reuse: bool) -> Result<TcpSocket, std::io::Error> {
++pub(crate) fn new_socket(
++    addr: std::net::SocketAddr,
++    reuse: bool,
++) -> Result<TcpSocket, std::io::Error> {
+     let socket = match addr {
+         std::net::SocketAddr::V4(..) => TcpSocket::new_v4()?,
+         std::net::SocketAddr::V6(..) => TcpSocket::new_v6()?,
+diff --git a/src/webrtc.rs b/src/webrtc.rs
+index 8f3c410..5a52c44 100644
+--- a/src/webrtc.rs
++++ b/src/webrtc.rs
+@@ -586,10 +586,7 @@ mod tests {
+             "turn:example.com:3478"
+         );
+         assert_eq!(WebRTCStream::get_ice_servers().len(), 2);
+-        config::Config::set_option(
+-            "ice-servers".to_string(),
+-            "".to_string(),
+-        );
++        config::Config::set_option("ice-servers".to_string(), "".to_string());
+     }
+ 
+     #[test]
+diff --git a/src/websocket.rs b/src/websocket.rs
+index 7bf2108..f630496 100644
+--- a/src/websocket.rs
++++ b/src/websocket.rs
+@@ -389,7 +389,9 @@ pub fn check_ws(endpoint: &str) -> String {
+     };
+     let protocol = if is_domain {
+         let api_server = Config::get_option("api-server");
+-        if api_server.starts_with("https") {
++        let host = endpoint_host.trim_end_matches('.').to_ascii_lowercase();
++        let is_official_server = host == "rustdesk.com" || host.ends_with(".rustdesk.com");
++        if api_server.starts_with("https") || is_official_server {
+             "wss"
+         } else {
+             "ws"
+@@ -417,9 +419,10 @@ mod tests {
+         assert_eq!(check_ws("127.0.0.1:21115"), "ws://127.0.0.1:21118");
+         assert_eq!(check_ws("127.0.0.1:21116"), "ws://127.0.0.1:21118");
+         assert_eq!(check_ws("127.0.0.1:21117"), "ws://127.0.0.1:21119");
+-        assert_eq!(check_ws("rustdesk.com:21115"), "ws://rustdesk.com/ws/id");
+-        assert_eq!(check_ws("rustdesk.com:21116"), "ws://rustdesk.com/ws/id");
+-        assert_eq!(check_ws("rustdesk.com:21117"), "ws://rustdesk.com/ws/relay");
++        assert_eq!(check_ws("rustdesk.com:21115"), "wss://rustdesk.com/ws/id");
++        assert_eq!(check_ws("rustdesk.com:21116"), "wss://rustdesk.com/ws/id");
++        assert_eq!(check_ws("rustdesk.com:21117"), "wss://rustdesk.com/ws/relay");
++        assert_eq!(check_ws("rs-ny.rustdesk.com:21116"), "wss://rs-ny.rustdesk.com/ws/id");
+         // set relay-server without port
+         Config::set_option("relay-server".to_string(), "127.0.0.1".to_string());
+         Config::set_option(

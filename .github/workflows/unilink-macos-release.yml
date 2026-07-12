@@ -1,0 +1,114 @@
+name: UniLink macOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example 1.4.10"
+        required: true
+        default: "1.4.10"
+
+permissions:
+  contents: read
+
+env:
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  FLUTTER_VERSION: "3.44.4"
+  MAC_RUST_VERSION: "1.81"
+
+jobs:
+  macos-x86_64:
+    name: Build macOS x86_64 DMG
+    runs-on: macos-15-intel
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Apply UniLink hbb_common changes
+        run: git -C libs/hbb_common apply ../../patches/unilink-hbb-common.patch
+
+      - name: Verify release version
+        run: |
+          expected="${{ inputs.version }}"
+          cargo_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
+          flutter_version="$(sed -n 's/^version: \([^+]*\).*/\1/p' flutter/pubspec.yaml | head -1)"
+          if [ "$cargo_version" != "$expected" ] || [ "$flutter_version" != "$expected" ]; then
+            echo "Version mismatch: input=$expected cargo=$cargo_version flutter=$flutter_version"
+            exit 1
+          fi
+
+      - name: Install build tools
+        run: |
+          brew install llvm pkg-config yasm
+
+      - name: Install compatible NASM
+        run: |
+          curl --fail --location --retry 3 \
+            https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz \
+            --output "$RUNNER_TEMP/nasm.tar.xz"
+          tar -xf "$RUNNER_TEMP/nasm.tar.xz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/nasm-2.16.03"
+          ./configure --prefix="$RUNNER_TEMP/nasm-prefix"
+          make -j"$(sysctl -n hw.logicalcpu)"
+          make install
+          echo "$RUNNER_TEMP/nasm-prefix/bin" >> "$GITHUB_PATH"
+          echo "UNILINK_NASM=$RUNNER_TEMP/nasm-prefix/bin/nasm" >> "$GITHUB_ENV"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Patch Flutter 3.24
+        if: startsWith(env.FLUTTER_VERSION, '3.24.')
+        run: |
+          cd "$(dirname "$(dirname "$(which flutter)")")"
+          git apply "${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
+
+      - name: Resolve Flutter dependencies
+        run: |
+          cd flutter
+          flutter pub get
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.MAC_RUST_VERSION }}
+          targets: x86_64-apple-darwin
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Install vcpkg dependencies
+        run: |
+          $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
+
+      - name: Build DMG
+        run: |
+          python3 build.py --flutter
+
+      - name: Normalize DMG name
+        run: |
+          version="${{ inputs.version }}"
+          src="UniLink-Control-${version}-x86_64.dmg"
+          if [ ! -f "$src" ]; then
+            echo "Expected $src"
+            find . -maxdepth 3 -name "*.dmg" -print
+            exit 1
+          fi
+          shasum -a 256 "$src"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UniLink-Control-${{ inputs.version }}-x86_64.dmg
+          path: UniLink-Control-${{ inputs.version }}-x86_64.dmg
