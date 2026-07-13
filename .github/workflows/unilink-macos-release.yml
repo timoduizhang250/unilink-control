@@ -78,7 +78,7 @@ jobs:
         with:
           toolchain: ${{ env.MAC_RUST_VERSION }}
           targets: x86_64-apple-darwin
-
+          components: rustfmt
       - name: Generate Flutter Rust bridge
         run: |
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked
