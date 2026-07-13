@@ -96,12 +96,13 @@ Acceptance: the UI is coherent, Chinese-readable, responsive, and every control 
 
 ## H. Release, Updates, and Trust
 
-- [~] Windows/macOS automatic-update infrastructure and GitHub Release flow have been worked on; verify current release metadata and actual installed-client update behavior.
+- [x] UniLink Control 1.4.10 GitHub Release is published to `timoduizhang250/unilink-control-releases` with Windows x86_64 EXE, macOS x86_64 DMG, Android arm64 APK, and `latest.json`; release assets and manifest download URLs returned HTTP 200, and remote manifest hash matched the local generated manifest.
+- [~] Windows/macOS/Android automatic-update metadata now points to real 1.4.10 artifacts; actual installed-client update behavior still needs physical client verification on each platform.
 - [ ] Establish a repeatable signed Windows release process.
 - [ ] Establish a repeatable signed/notarized macOS release process.
-- [ ] Build Android release signing, permission explanation, installation/update policy, and trusted distribution path.
-- [ ] Verify each platform checks real GitHub Release metadata and receives the intended artifact.
-- [~] Release manifest generation and publishing scripts exist, and the current `latest.json` has Windows/macOS SHA-256 values. Real signed release installation/update verification remains.
+- [~] Android release APK for 1.4.10 is built and published with SHA-256 verification; permission explanation, installation/update policy, and trusted distribution path still need product copy and real-device validation.
+- [~] Verify each platform checks real GitHub Release metadata and receives the intended artifact. Metadata and URLs are verified; physical installed-client update checks remain.
+- [x] Release manifest generation and publishing flow produced `latest.json` with Windows/macOS/Android SHA-256 values for 1.4.10.
 
 Acceptance: a nontechnical user can install, trust, update, and recover each platform without guesswork.
 

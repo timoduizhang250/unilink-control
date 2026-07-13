@@ -90,8 +90,9 @@ foreach ($path in @($WindowsX64, $MacX64, $MacArm64, $AndroidX64, $AndroidArm64,
     }
 }
 
-gh release view $Version --repo $Repo *> $null
-if ($LASTEXITCODE -ne 0) {
+gh release view $Version --repo $Repo > $null 2> $null
+$releaseExists = $LASTEXITCODE -eq 0
+if (-not $releaseExists) {
     gh release create $Version --repo $Repo --title "UniLink Control $Version" --notes "UniLink Control release $Version."
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create GitHub release $Version"
