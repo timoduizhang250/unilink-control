@@ -3667,7 +3667,7 @@ Future<bool> setServerConfig(
   if (oldApiServer.isNotEmpty &&
       oldApiServer != newApiServer &&
       gFFI.userModel.isLogin) {
-    gFFI.userModel.logOut(apiServer: oldApiServer);
+    await gFFI.userModel.logOut(apiServer: oldApiServer);
   }
   return true;
 }

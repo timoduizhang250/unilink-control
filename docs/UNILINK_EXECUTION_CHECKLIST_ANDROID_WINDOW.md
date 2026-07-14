@@ -18,8 +18,12 @@ UniLink makes Windows, macOS, and Android feel like one connected personal work 
 - [~] Windows desktop UniLink can build and has been deployed before; current end-to-end regression still needs a fresh test.
 - [~] Android UniLink debug APK builds and installs; latest LAN-RDP build has been generated but not installed on the currently disconnected ADB device.
 - [~] Windows/Mac/Android device and session UI exists; all visible actions still need a systematic functional audit.
-- [~] Public RustDesk server path works for Android device discovery and a connection request to an online Windows target; final screen/input success must be re-verified with the current build.
+- [~] Android 1.4.11 -> Windows 1.4.11 over the official public server reached the live Windows desktop on 2026-07-15. The user confirmed the session connected and declined further input regression; pointer, drag, keyboard, disconnect, and reconnect remain unverified.
+- [~] The same Android -> Windows session used a distant relay because Android Wi-Fi was disabled (cellular `10.91.*`) while Windows was on Wi-Fi (`192.168.1.*`). Measured Windows-to-relay RTT was about 330 ms and Android-to-relay RTT about 347 ms, so low-latency public control is not accepted yet; same-LAN direct routing and honest relay diagnostics remain required.
 - [x] Android official-server WebSocket handling was changed to use secure WebSocket for RustDesk domains; focused Rust test passed.
+- [~] Built-in official-line switching now restores WebSocket mode, waits for reconnect, and rolls back server/account state on failure. HITOHA remains visible but disabled because its registration protocol and packet loss failed real-device testing. Focused Flutter policy tests passed; Windows/Android real-device switching still needs the 1.4.12 build.
+- [~] Desktop account login/logout is exposed in UniLink settings, and the primary desktop/mobile/My Devices connection entries require a controller login only for the official public line. LAN addresses, custom servers, and the unlogged-in target role remain available. Policy tests passed; real official login and reconnect need 1.4.12 device verification.
+- [~] Remote sessions now report device-direct versus public-relay routing and show one high-latency hint at 250 ms or above. Parsing and threshold tests passed; visual timing still needs a real 1.4.12 session.
 - [~] One-time password and online-status behavior have been improved during testing, but need regression testing across reconnects and network changes.
 - [ ] Full basic regression: Windows-to-Windows, Windows-to-Mac, Android-to-Windows, Android-to-Mac, including screen, pointer, drag, keyboard, disconnect, and reconnect.
 
@@ -97,6 +101,7 @@ Acceptance: the UI is coherent, Chinese-readable, responsive, and every control 
 ## H. Release, Updates, and Trust
 
 - [x] UniLink Control 1.4.11 GitHub Release is published to `timoduizhang250/unilink-control-releases` with Windows x86_64 EXE, macOS x86_64 DMG, Android arm64 APK, and `latest.json`; release asset URLs returned HTTP 206 for range download checks, and the remote manifest hash matched the local generated manifest.
+- [x] The 1.4.11 macOS DMG was rebuilt after a Finder `-36` copy failure report; CI now stages the app bundle with `ditto`, mounts the generated DMG, copies `UniLink Control.app` back out, verifies the executable, and runs `hdiutil verify` before uploading.
 - [~] Windows/macOS/Android automatic-update metadata now points to real 1.4.11 artifacts; actual installed-client update behavior still needs physical client verification on each platform.
 - [ ] Establish a repeatable signed Windows release process.
 - [ ] Establish a repeatable signed/notarized macOS release process.

@@ -11,6 +11,9 @@ class UniLinkServerLine {
   final String key;
   final bool isOfficial;
   final bool isFreeThirdParty;
+  final bool useWebSocket;
+  final bool isAvailable;
+  final String unavailableReason;
 
   const UniLinkServerLine({
     required this.id,
@@ -23,6 +26,9 @@ class UniLinkServerLine {
     required this.key,
     this.isOfficial = false,
     this.isFreeThirdParty = false,
+    this.useWebSocket = false,
+    this.isAvailable = true,
+    this.unavailableReason = '',
   });
 
   bool matches({
@@ -42,24 +48,27 @@ const uniLinkOfficialServerLine = UniLinkServerLine(
   id: 'official',
   name: '官方公共线路',
   region: '默认',
-  description: '不用填写服务器，适合先测试；如果手机提示地区限制，就换免费线路。',
+  description: '官方公共网络，控制其他设备前需要登录；网络距离较远时延迟可能较高。',
   idServer: '',
   relayServer: '',
   apiServer: '',
   key: '',
   isOfficial: true,
+  useWebSocket: true,
 );
 
 const uniLinkHitohaServerLine = UniLinkServerLine(
   id: 'hitoha-sg',
   name: 'HITOHA 免费线路',
   region: '新加坡',
-  description: '公开免费的 RustDesk 中继线路，可能会慢或临时不可用。',
+  description: '当前协议不兼容且存在丢包，暂时不能用于设备连接。',
   idServer: '103.131.188.71',
   relayServer: '103.131.188.71',
   apiServer: '',
   key: 'xMnueFSYC65LbBsCOGJKj29N0fU8ZEPJ0NqZZiARbW0=',
   isFreeThirdParty: true,
+  isAvailable: false,
+  unavailableReason: '协议不兼容，等待替换为已验证的亚洲线路',
 );
 
 const uniLinkBuiltInServerLines = <UniLinkServerLine>[
@@ -127,6 +136,34 @@ bool uniLinkCanUsePublicServer(String peerId) {
     base = base.substring(0, base.length - 2);
   }
   return base.isNotEmpty && !_looksLikeDirectAddress(base);
+}
+
+bool uniLinkShouldRequireOfficialLogin({
+  required String appName,
+  required String peerId,
+  required String idServer,
+  required String relayServer,
+  required String apiServer,
+  required String key,
+  required String accessToken,
+}) {
+  if (!appName.toLowerCase().contains('unilink') ||
+      accessToken.trim().isNotEmpty) {
+    return false;
+  }
+
+  final normalizedPeer = peerId.trim().replaceAll(' ', '');
+  if (!uniLinkCanUsePublicServer(normalizedPeer)) return false;
+
+  final explicitlyOfficial =
+      normalizedPeer.endsWith('@$uniLinkPublicServerName');
+  final currentLine = uniLinkDetectServerLineId(
+    idServer: idServer,
+    relayServer: relayServer,
+    apiServer: apiServer,
+    key: key,
+  );
+  return explicitlyOfficial || currentLine == uniLinkOfficialServerLine.id;
 }
 
 bool _looksLikeDirectAddress(String value) {

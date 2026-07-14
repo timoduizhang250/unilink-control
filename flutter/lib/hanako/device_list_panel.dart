@@ -5,6 +5,7 @@ import 'package:flutter_hbb/hanako/control_client.dart';
 import 'package:flutter_hbb/hanako/control_settings.dart';
 import 'package:flutter_hbb/hanako/drive_mounter.dart';
 import 'package:flutter_hbb/hanako/endpoint_resolver.dart';
+import 'package:flutter_hbb/hanako/official_login.dart';
 import 'package:flutter_hbb/hanako/public_server.dart';
 import 'package:flutter_hbb/hanako/ssh_terminal.dart';
 import 'package:flutter_hbb/hanako/unilink_theme.dart';
@@ -222,11 +223,12 @@ class _DeviceRow extends StatelessWidget {
           ? null
           : () => showUniLinkConnectionDecision(
                 target: target,
-                onRemoteControl: () => connect(context, device.rustdeskId),
-                onLocalRemoteControl: (host) => connect(context, host),
+                onRemoteControl: () =>
+                    uniLinkConnect(context, device.rustdeskId),
+                onLocalRemoteControl: (host) => uniLinkConnect(context, host),
                 onPublicRemoteControl: canUsePublic
-                    ? () =>
-                        connect(context, uniLinkPublicPeerId(device.rustdeskId))
+                    ? () => uniLinkConnect(
+                        context, uniLinkPublicPeerId(device.rustdeskId))
                     : null,
               ),
       dense: true,
@@ -275,10 +277,11 @@ class _DeviceRow extends StatelessWidget {
                   : () => showUniLinkConnectionDecision(
                         target: target,
                         onRemoteControl: () =>
-                            connect(context, device.rustdeskId),
-                        onLocalRemoteControl: (host) => connect(context, host),
+                            uniLinkConnect(context, device.rustdeskId),
+                        onLocalRemoteControl: (host) =>
+                            uniLinkConnect(context, host),
                         onPublicRemoteControl: canUsePublic
-                            ? () => connect(
+                            ? () => uniLinkConnect(
                                 context, uniLinkPublicPeerId(device.rustdeskId))
                             : null,
                       ),
@@ -289,7 +292,7 @@ class _DeviceRow extends StatelessWidget {
             child: IconButton(
               icon: const Icon(Icons.public, size: 19),
               onPressed: canUsePublic
-                  ? () => connect(
+                  ? () => uniLinkConnect(
                         context,
                         uniLinkPublicPeerId(device.rustdeskId),
                       )
@@ -327,7 +330,8 @@ class _DeviceRow extends StatelessWidget {
                     onChanged: onChanged,
                   );
                 } else if (value == 'public') {
-                  connect(context, uniLinkPublicPeerId(device.rustdeskId));
+                  uniLinkConnect(
+                      context, uniLinkPublicPeerId(device.rustdeskId));
                 } else if (value == 'delete') {
                   _showDeleteDeviceDialog(
                     context: context,

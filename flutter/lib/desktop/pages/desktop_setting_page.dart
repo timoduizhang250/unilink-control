@@ -15,6 +15,7 @@ import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
 import 'package:flutter_hbb/hanako/control_settings.dart';
 import 'package:flutter_hbb/hanako/public_server.dart';
+import 'package:flutter_hbb/hanako/server_line_service.dart';
 import 'package:flutter_hbb/hanako/unilink_theme.dart';
 import 'package:flutter_hbb/mobile/widgets/dialog.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
@@ -581,31 +582,24 @@ class _UniLinkSettingsExperienceState
 
   Future<void> _applyServerLine(UniLinkServerLine line) async {
     if (_applyingServerLine) return;
+    if (!line.isAvailable) {
+      _showSaved(line.unavailableReason);
+      return;
+    }
     setState(() {
       _applyingServerLine = true;
       _selectedServerLineId = line.id;
     });
     try {
-      final ok = await setServerConfig(
-        null,
-        null,
-        ServerConfig(
-          idServer: line.idServer,
-          relayServer: line.relayServer,
-          apiServer: line.apiServer,
-          key: line.key,
-        ),
-      );
-      if (!ok) {
-        _showSaved('线路保存失败，请检查服务器地址');
+      final result = await applyUniLinkServerLine(line);
+      if (!result.applied) {
+        _loadCurrentOptions();
+        _showSaved(result.message);
         return;
       }
-      await bind.mainSetOption(key: kOptionDirectServer, value: 'N');
-      await bind.mainSetOption(key: kOptionAllowWebSocket, value: 'N');
-      await bind.mainSetOption(key: 'local-ip-addr', value: '');
       if (!mounted) return;
       _loadCurrentOptions();
-      _showSaved('已切换到 ${line.name}');
+      _showSaved(result.message);
     } catch (e) {
       if (mounted) _showSaved('线路切换失败：$e');
     } finally {
@@ -918,6 +912,7 @@ class _UniLinkSettingsExperienceState
       case 0:
         return [
           _card('账号与设备', [
+            _accountStatusRow(),
             _actionRow('我的设备', '自动显示本机最近连接和局域网设备。', '查看',
                 showUniLinkMyDevicesHelpDialog),
             _infoRow('本机设备名', '自动使用系统设备名'),
@@ -1102,7 +1097,7 @@ class _UniLinkSettingsExperienceState
 
   Widget _serverLineTile(UniLinkServerLine line) {
     final selected = _selectedServerLineId == line.id;
-    final disabled = _applyingServerLine && !selected;
+    final disabled = !line.isAvailable || (_applyingServerLine && !selected);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
@@ -1149,6 +1144,17 @@ class _UniLinkSettingsExperienceState
                         fontSize: 12,
                       ),
                     ),
+                    if (!line.isAvailable) ...[
+                      const SizedBox(width: 8),
+                      const Text(
+                        '暂不可用',
+                        style: TextStyle(
+                          color: Color(0xFFB45309),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -1168,7 +1174,11 @@ class _UniLinkSettingsExperienceState
           TextButton(
             onPressed:
                 selected || disabled ? null : () => _applyServerLine(line),
-            child: Text(selected ? '使用中' : '切换'),
+            child: Text(!line.isAvailable
+                ? '停用'
+                : selected
+                    ? '使用中'
+                    : '切换'),
           ),
         ],
       ),
@@ -1261,6 +1271,29 @@ class _UniLinkSettingsExperienceState
       subtitle: value,
       trailing: TextButton(onPressed: onTap, child: Text(action)),
     );
+  }
+
+  Widget _accountStatusRow() {
+    return Obx(() {
+      final loggedIn = gFFI.userModel.isLogin;
+      final label = loggedIn
+          ? '已登录 ${gFFI.userModel.accountLabelWithHandle}'
+          : '未登录；作为被控端不受影响，控制其他设备时需要登录';
+      return _actionRow(
+        '官方线路账号',
+        label,
+        loggedIn ? '退出' : '登录',
+        () async {
+          if (loggedIn) {
+            logOutConfirmDialog();
+          } else {
+            await loginDialog();
+          }
+          if (!mounted) return;
+          setState(() {});
+        },
+      );
+    });
   }
 
   Widget _settingRow(String label,

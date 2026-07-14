@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
 import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/hanako/connection_health.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
 import 'package:flutter_hbb/models/chat_model.dart';
 import 'package:flutter_hbb/models/cm_file_model.dart';
@@ -126,6 +127,7 @@ class FfiModel with ChangeNotifier {
   DateTime? _offlineReconnectStartTime;
   bool _viewOnly = false;
   bool _showMyCursor = false;
+  bool _connectionRouteHintShown = false;
   WeakReference<FFI> parent;
   late final SessionID sessionId;
 
@@ -250,6 +252,7 @@ class FfiModel with ChangeNotifier {
     _pi = PeerInfo();
     _secure = null;
     _direct = null;
+    _connectionRouteHintShown = false;
     _inputBlocked = false;
     _timer?.cancel();
     _timer = null;
@@ -345,6 +348,7 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'connection_ready') {
         setConnectionType(peerId, evt['secure'] == 'true',
             evt['direct'] == 'true', evt['stream_type'] ?? '');
+        _showConnectionRouteHint();
         resetRestartReconnectState();
       } else if (name == 'switch_display') {
         // switch display is kept for backward compatibility
@@ -485,6 +489,17 @@ class FfiModel with ChangeNotifier {
         debugPrint('Event is not handled in the fixed branch: $name');
       }
     };
+  }
+
+  void _showConnectionRouteHint() {
+    if (_connectionRouteHintShown ||
+        !bind.mainGetAppNameSync().toLowerCase().contains('unilink')) {
+      return;
+    }
+    final hint = uniLinkConnectionRouteHint(_direct);
+    if (hint == null) return;
+    _connectionRouteHintShown = true;
+    showToast(hint);
   }
 
   _handleScreenshot(
@@ -3550,6 +3565,7 @@ class QualityMonitorModel with ChangeNotifier {
   QualityMonitorModel(this.parent);
   var _show = false;
   final _data = QualityMonitorData();
+  bool _highLatencyHintShown = false;
 
   bool get show => _show;
   QualityMonitorData get data => _data;
@@ -3592,6 +3608,7 @@ class QualityMonitorModel with ChangeNotifier {
       }
       if (evt.containsKey('delay') && (evt['delay'] as String).isNotEmpty) {
         _data.delay = evt['delay'];
+        _showHighLatencyHint();
       }
       if (evt.containsKey('target_bitrate') &&
           (evt['target_bitrate'] as String).isNotEmpty) {
@@ -3608,6 +3625,20 @@ class QualityMonitorModel with ChangeNotifier {
     } catch (e) {
       //
     }
+  }
+
+  void _showHighLatencyHint() {
+    if (_highLatencyHintShown ||
+        !bind.mainGetAppNameSync().toLowerCase().contains('unilink')) {
+      return;
+    }
+    final hint = uniLinkHighLatencyHint(
+      rawDelay: _data.delay,
+      direct: parent.target?.ffiModel.direct,
+    );
+    if (hint == null) return;
+    _highLatencyHintShown = true;
+    showToast(hint);
   }
 }
 

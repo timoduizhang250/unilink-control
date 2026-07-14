@@ -6,6 +6,7 @@ import 'package:flutter_hbb/common/formatter/id_formatter.dart';
 import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/hanako/android_updater.dart';
+import 'package:flutter_hbb/hanako/official_login.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -109,7 +110,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   /// Connects to the selected peer.
   void onConnect() {
     var id = _idController.id;
-    connect(context, id);
+    uniLinkConnect(context, id);
   }
 
   Widget _buildLanConnectionEntry() {

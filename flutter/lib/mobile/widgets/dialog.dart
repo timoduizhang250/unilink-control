@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/common/widgets/toolbar.dart';
 import 'package:flutter_hbb/hanako/public_server.dart';
+import 'package:flutter_hbb/hanako/server_line_service.dart';
 import 'package:get/get.dart';
 
 import '../../common.dart';
@@ -89,40 +90,39 @@ void showServerSettingsWithValue(
 
   dialogManager.show((setState, close, context) {
     Future<void> applyServerLine(UniLinkServerLine line) async {
+      if (!line.isAvailable) {
+        showToast(line.unavailableReason);
+        return;
+      }
       setState(() {
         isInProgress = true;
       });
-      final ret = await setServerConfig(
-        controllers,
-        errMsgs,
-        ServerConfig(
-          idServer: line.idServer,
-          relayServer: line.relayServer,
-          apiServer: line.apiServer,
-          key: line.key,
-        ),
-      );
+      final result = await applyUniLinkServerLine(line);
+      final ret = result.applied;
       if (ret) {
-        await bind.mainSetOption(key: 'direct-server', value: 'N');
-        await bind.mainSetOption(key: 'allow-websocket', value: 'N');
-        await bind.mainSetOption(key: 'local-ip-addr', value: '');
+        idCtrl.text = line.idServer;
+        relayCtrl.text = line.relayServer;
+        apiCtrl.text = line.apiServer;
+        keyCtrl.text = line.key;
       }
       setState(() {
         isInProgress = false;
       });
       if (ret) {
-        showToast('已切换到 ${line.name}');
+        showToast(result.message);
         upSetState?.call(() {});
       } else {
-        showToast(translate('Failed'));
+        showToast(result.message);
       }
     }
 
     Widget serverLineButton(UniLinkServerLine line) {
       return OutlinedButton.icon(
-        onPressed: isInProgress ? null : () => applyServerLine(line),
+        onPressed: isInProgress || !line.isAvailable
+            ? null
+            : () => applyServerLine(line),
         icon: Icon(line.isOfficial ? Icons.public : Icons.cloud_queue),
-        label: Text(line.name),
+        label: Text(line.isAvailable ? line.name : '${line.name}（暂不可用）'),
       );
     }
 

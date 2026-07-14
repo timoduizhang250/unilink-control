@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/popup_menu.dart';
 import 'package:flutter_hbb/hanako/device_list_panel.dart';
+import 'package:flutter_hbb/hanako/official_login.dart';
 import 'package:flutter_hbb/hanako/unilink_theme.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
@@ -351,7 +352,7 @@ class _ConnectionPageState extends State<ConnectionPage>
       bool isViewCamera = false,
       bool isTerminal = false}) {
     var id = _idController.id;
-    connect(context, id,
+    uniLinkConnect(context, id,
         isFileTransfer: isFileTransfer,
         isViewCamera: isViewCamera,
         isTerminal: isTerminal);

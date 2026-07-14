@@ -8,6 +8,7 @@ import 'package:flutter_hbb/hanako/control_client.dart';
 import 'package:flutter_hbb/hanako/control_settings.dart';
 import 'package:flutter_hbb/hanako/drive_mounter.dart';
 import 'package:flutter_hbb/hanako/endpoint_resolver.dart';
+import 'package:flutter_hbb/hanako/official_login.dart';
 import 'package:flutter_hbb/hanako/public_server.dart';
 import 'package:flutter_hbb/hanako/ssh_terminal.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
@@ -250,17 +251,17 @@ class _HanakoTopDeviceDropdownState extends State<HanakoTopDeviceDropdown> {
     _hideOverlay();
     showUniLinkConnectionDecision(
       target: device.toEndpointTarget(),
-      onRemoteControl: () => connect(context, device.id),
-      onLocalRemoteControl: (host) => connect(context, host),
+      onRemoteControl: () => uniLinkConnect(context, device.id),
+      onLocalRemoteControl: (host) => uniLinkConnect(context, host),
       onPublicRemoteControl: uniLinkCanUsePublicServer(device.id)
-          ? () => connect(context, uniLinkPublicPeerId(device.id))
+          ? () => uniLinkConnect(context, uniLinkPublicPeerId(device.id))
           : null,
     );
   }
 
   void _connectPublic(String id) {
     _hideOverlay();
-    connect(context, uniLinkPublicPeerId(id));
+    uniLinkConnect(context, uniLinkPublicPeerId(id));
   }
 
   void _openDrive(_TopDeviceEntry device) {
