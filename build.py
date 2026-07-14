@@ -567,12 +567,24 @@ def build_flutter_dmg(version, features):
     system2(f'cp -rf ../target/release/service "{app_bundle}/Contents/MacOS/"')
     dmg_root = './build/macos/Build/Products/Release/dmg'
     dmg_name = f'UniLink-Control-{version}-{mac_arch}.dmg'
+    staged_app = f'{dmg_root}/{macos_app_name}.app'
+    verify_mount = './build/macos/Build/Products/Release/dmg-verify-mount'
+    verify_root = './build/macos/Build/Products/Release/dmg-verify-copy'
     system2(f'rm -rf "{dmg_root}" "{dmg_name}"')
     system2(f'mkdir -p "{dmg_root}"')
-    system2(f'cp -R "{app_bundle}" "{dmg_root}/"')
+    system2(f'ditto --rsrc --extattr --acl "{app_bundle}" "{staged_app}"')
     system2(f'ln -s /Applications "{dmg_root}/Applications"')
     system2(
         f'hdiutil create -volname "UniLink Control" -srcfolder "{dmg_root}" -ov -format UDZO "{dmg_name}"')
+    system2(f'rm -rf "{verify_mount}" "{verify_root}"')
+    system2(f'mkdir -p "{verify_mount}" "{verify_root}"')
+    try:
+        system2(f'hdiutil attach "{dmg_name}" -mountpoint "{verify_mount}" -nobrowse -readonly')
+        system2(f'ditto --rsrc --extattr --acl "{verify_mount}/{macos_app_name}.app" "{verify_root}/{macos_app_name}.app"')
+        system2(f'test -x "{verify_root}/{macos_app_name}.app/Contents/MacOS/{macos_app_name}"')
+    finally:
+        os.system(f'hdiutil detach "{verify_mount}" >/dev/null 2>&1')
+        system2(f'rm -rf "{verify_mount}" "{verify_root}"')
     os.rename(dmg_name, f"../{dmg_name}")
     os.chdir("..")
 

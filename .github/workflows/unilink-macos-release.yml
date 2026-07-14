@@ -113,6 +113,7 @@ jobs:
             find . -maxdepth 3 -name "*.dmg" -print
             exit 1
           fi
+          hdiutil verify "$src"
           shasum -a 256 "$src"
 
       - name: Upload DMG artifact
