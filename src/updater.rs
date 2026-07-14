@@ -52,6 +52,20 @@ fn has_no_active_conns() -> bool {
     conns.is_empty() && has_no_controlling_conns()
 }
 
+fn allow_auto_update() -> bool {
+    let key = config::keys::OPTION_ALLOW_AUTO_UPDATE;
+    let value = config::Config::get_option(key);
+    let is_unilink = crate::common::get_app_name()
+        .to_lowercase()
+        .contains("unilink");
+    if is_unilink {
+        // UniLink should default to auto-update unless the user explicitly turns it off.
+        value.is_empty() || value == "Y"
+    } else {
+        config::option2bool(key, &value)
+    }
+}
+
 #[cfg(any(not(target_os = "windows"), feature = "flutter"))]
 fn has_no_controlling_conns() -> bool {
     CONTROLLING_SESSION_COUNT.load(Ordering::SeqCst) == 0
@@ -120,7 +134,12 @@ fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
 fn check_update(manually: bool) -> ResultType<()> {
     #[cfg(target_os = "windows")]
     let update_msi = crate::platform::is_msi_installed()? && !crate::is_custom_client();
-    if !(manually || config::Config::get_bool_option(config::keys::OPTION_ALLOW_AUTO_UPDATE)) {
+    if !(manually || allow_auto_update()) {
+        log::debug!(
+            "Skipping software update check: manual={manually}, allow_auto_update={}, app={}",
+            allow_auto_update(),
+            crate::common::get_app_name(),
+        );
         return Ok(());
     }
     if do_check_software_update().is_err() {

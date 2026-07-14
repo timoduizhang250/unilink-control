@@ -946,7 +946,12 @@ pub fn check_software_update() {
         return;
     }
     let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
-    if config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
+    let should_check = if is_unilink_control() {
+        opt.is_empty() || opt == "Y"
+    } else {
+        config::option2bool(keys::OPTION_ENABLE_CHECK_UPDATE, &opt)
+    };
+    if should_check {
         std::thread::spawn(move || allow_err!(do_check_software_update()));
     }
 }
@@ -1014,6 +1019,10 @@ fn clear_software_update() {
 
 async fn do_check_unilink_software_update() -> hbb_common::ResultType<()> {
     let url = unilink_update_manifest_url();
+    log::info!(
+        "Checking UniLink update manifest: {url}, current version: {}",
+        crate::VERSION
+    );
     let proxy_conf = Config::get_socks();
     let tls_url = get_url_for_tls(&url, &proxy_conf);
     let tls_type = get_cached_tls_type(tls_url);
@@ -1040,9 +1049,11 @@ async fn do_check_unilink_software_update() -> hbb_common::ResultType<()> {
     let bytes = latest_release_response.error_for_status()?.bytes().await?;
     let manifest: UniLinkUpdateManifest = serde_json::from_slice(&bytes)?;
     let latest_release_version = manifest.version.trim();
+    log::info!("UniLink update manifest version: {latest_release_version}");
     if latest_release_version.is_empty()
         || get_version_number(latest_release_version) <= get_version_number(crate::VERSION)
     {
+        log::info!("No newer UniLink version is available.");
         clear_software_update();
         return Ok(());
     }
@@ -1067,6 +1078,7 @@ async fn do_check_unilink_software_update() -> hbb_common::ResultType<()> {
         bail!("No UniLink update asset for architecture: {arch}");
     };
     let download_url = asset.url.trim().to_owned();
+    log::info!("UniLink update asset selected: arch={arch}, url={download_url}");
     if !download_url.starts_with("https://") {
         clear_software_update();
         bail!("UniLink update asset must use HTTPS for architecture: {arch}");

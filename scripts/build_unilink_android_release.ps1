@@ -53,7 +53,8 @@ if (-not $SkipRust) {
         }
     }
 
-    $repoWsl = (& wsl.exe -d $WslDistro -- wslpath -a $repo).Trim()
+    $repoForWsl = $repo.Replace('\', '/')
+    $repoWsl = (& wsl.exe -d $WslDistro -- wslpath -a $repoForWsl).Trim()
     if ($LASTEXITCODE -ne 0 -or $repoWsl -notmatch '^/[A-Za-z0-9._/-]+$') {
         throw "Could not resolve the repository path in WSL"
     }
@@ -120,8 +121,8 @@ if ($LASTEXITCODE -ne 0 -or
     $badging[0] -notmatch "versionName='$([regex]::Escape($version))'") {
     throw "Built APK package or version verification failed"
 }
-$signing = & (Join-Path $buildTools.FullName "apksigner.bat") verify --print-certs $releaseApk
-if ($LASTEXITCODE -ne 0 -or $signing -notmatch 'CN=UniLink Control') {
+$signing = (& (Join-Path $buildTools.FullName "apksigner.bat") verify --print-certs $releaseApk) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $signing -notmatch 'CN\s*=\s*UniLink Control') {
     throw "Built APK signing verification failed"
 }
 
