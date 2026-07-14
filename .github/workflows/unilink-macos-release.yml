@@ -88,6 +88,8 @@ jobs:
             --c-output ./flutter/macos/Runner/bridge_generated.h
 
       - name: Cache Cargo
+        timeout-minutes: 5
+        continue-on-error: true
         uses: Swatinem/rust-cache@v2
 
       - name: Setup vcpkg
