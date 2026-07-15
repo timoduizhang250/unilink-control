@@ -420,9 +420,9 @@ def external_resources(flutter, args, res_dir):
 
 def get_features(args):
     features = ['inline'] if not args.flutter else []
-    if args.hwcodec:
+    if args.hwcodec or ((windows or osx) and args.flutter):
         features.append('hwcodec')
-    if args.vram:
+    if args.vram or (windows and args.flutter and win_arch == 'x64'):
         features.append('vram')
     if args.flutter:
         features.append('flutter')
@@ -628,10 +628,23 @@ def build_flutter_windows(version, features, skip_portable_pack):
     if skip_portable_pack:
         return
     os.chdir('libs/portable')
-    python_cmd = 'python' if windows else f'"{sys.executable}"'
-    system2(f'{python_cmd} -m pip install -r requirements.txt')
-    system2(
-        f'{python_cmd} ./generate.py -f ../../{flutter_build_dir_2} -o . -e "../../{flutter_build_dir_2}/{flutter_exe_name}"')
+    subprocess.run(
+        [sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'],
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            './generate.py',
+            '-f',
+            f'../../{flutter_build_dir_2}',
+            '-o',
+            '.',
+            '-e',
+            f'../../{flutter_build_dir_2}/{flutter_exe_name}',
+        ],
+        check=True,
+    )
     os.chdir('../..')
     if os.path.exists('./rustdesk_portable.exe'):
         os.replace('./target/release/rustdesk-portable-packer.exe',

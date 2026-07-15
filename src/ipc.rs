@@ -1334,6 +1334,29 @@ pub async fn connect(ms_timeout: u64, postfix: &str) -> ResultType<ConnectionTmp
     }
 }
 
+#[cfg(target_os = "macos")]
+#[tokio::main(flavor = "current_thread")]
+pub(crate) async fn has_healthy_main_listener() -> bool {
+    const PROBE_ATTEMPTS: usize = 3;
+
+    for attempt in 0..PROBE_ATTEMPTS {
+        if let Ok(mut stream) = connect(1000, "").await {
+            if stream.send(&Data::SyncConfig(None)).await.is_ok()
+                && matches!(
+                    stream.next_timeout(1000).await,
+                    Ok(Some(Data::SyncConfig(Some(_))))
+                )
+            {
+                return true;
+            }
+        }
+        if attempt + 1 < PROBE_ATTEMPTS {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        }
+    }
+    false
+}
+
 #[cfg(target_os = "linux")]
 pub async fn connect_for_uid(
     ms_timeout: u64,

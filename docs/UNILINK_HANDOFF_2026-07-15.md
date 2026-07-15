@@ -54,3 +54,31 @@ Physical result:
 Source changes now make the daemon execute `service` directly and make the macOS build re-sign and strictly verify the app after copying `service`, run `hdiutil verify`, and strictly verify the app copied back from the finished DMG. Python syntax and plist XML checks passed on Windows, and the equivalent signing/service corrections passed on the physical Mac. A fresh Mac build has not run because that Mac currently has no Rust/Flutter toolchain.
 
 The Mac's current Ethernet default route is `192.168.137.1`, but it has no raw internet connectivity through that gateway. GitHub and `rs-ny.rustdesk.com` DNS/HTTPS checks time out. The manual LAN bootstrap is complete, but future automatic updates and public-line registration require a working Mac internet path.
+
+## Mac Permission and Direct-Control Recovery
+
+After the user disabled macOS Remote Management, SSH remained reachable while Screen Sharing port 5900 stopped listening. Remote Management was re-enabled for user `hp`, restoring port 5900. UniLink direct port 21118 remained reachable throughout.
+
+The upgraded `com.unilink.control` bundle then authenticated over LAN but stayed black at "waiting for video". The macOS TCC database showed the old `com.carriez.rustdesk` bundle approved while `com.unilink.control` Screen Recording was denied. System logs repeated `Invalid display stream 0x0`. The old signed 1.4.8 backup was temporarily used as a rescue capture path so the user could approve Screen Recording and Accessibility for the new UniLink bundle. The temporary `/Applications/RustDesk.app` rescue link was removed afterward; the backup app remains untouched.
+
+Switching back initially created duplicate UniLink listeners because the launch agent and manual GUI starts overlapped. Logs showed `Address already in use (os error 48)` and the launch agent repeatedly exited with code 255. The user-side processes and UniLink IPC directory were stopped cleanly, then the launch agent was bootstrapped once. Final state:
+
+- TCC reports Screen Recording and Accessibility approved for `com.unilink.control`.
+- One stable `/Applications/UniLink Control.app/Contents/MacOS/UniLink Control --server` process listens on port 21118.
+- The root service remains active from the 1.4.12 bundle.
+- Windows established a LAN session to `192.168.137.2:21118`.
+- Server logs created a 1680x1050 capture and VP9 encoder, and the Windows client displayed the live Mac desktop for repeated visual checks.
+
+Pointer, drag, keyboard, deliberate disconnect, and reconnect remain to be recorded before the full Windows -> Mac path is marked verified.
+
+## UniLink 1.4.13 Release Preparation
+
+- Version sources are aligned at `1.4.13+71` for Rust, Flutter, and the Windows portable packer.
+- Windows Rust Release and Flutter Release builds passed with `hwcodec,vram,flutter`.
+- `rustdesk-1.4.13-install.exe` was produced at 27,163,648 bytes with SHA-256 `a8c211da33ad56f41e9811a49daf28e1facc15e62df7f04d88acccfecd8436c2` and file/product version 1.4.13.
+- The packaged and Cargo-built `librustdesk.dll` files matched at SHA-256 `e9c9148760b3f1d9de0ba1607f382898d378bf8b7855a3b56a808136124e0184`.
+- Focused test `server::ipc_start_failure_tests::macos_duplicate_exits_successfully_only_for_a_healthy_incumbent` passed with the Windows hardware-codec feature set.
+- macOS packaging now enables `hwcodec`, signs after adding the service binary, verifies the app and DMG, and keeps the bounded Cargo cache step.
+- `patches/unilink-hbb-common.patch` was regenerated from the current submodule diff; reverse-apply verification passed and its SHA-256 is `78efc269a2375eece40053b0b80ba5d03acab8970b008a43b15078114ae79e13`.
+
+Publication is not complete. The current restricted execution account cannot read the existing Android signing key, cannot see the user-owned WSL Ubuntu distribution, and its GitHub CLI token returns HTTP 401. Do not replace the Android signing key because existing installations must remain upgrade-compatible. Keep this Windows PC on installed 1.4.12 until the published 1.4.13 automatic update is exercised.

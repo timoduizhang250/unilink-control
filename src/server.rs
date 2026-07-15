@@ -67,8 +67,8 @@ pub mod input_service {
 }
 
 mod connection;
-mod login_failure_check;
 pub mod display_service;
+mod login_failure_check;
 #[cfg(windows)]
 pub mod portable_service;
 mod service;
@@ -591,9 +591,26 @@ pub async fn start_server(is_server: bool, no_server: bool) {
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {
                 log::error!("Failed to start ipc: {}", err);
-                if crate::is_server() {
-                    log::error!("ipc is occupied by another process, try kill it");
-                    std::thread::spawn(stop_main_window_process).join().ok();
+                #[cfg(target_os = "macos")]
+                let healthy_existing_main_listener = crate::ipc::has_healthy_main_listener();
+                #[cfg(not(target_os = "macos"))]
+                let healthy_existing_main_listener = false;
+                match ipc_start_failure_action(
+                    cfg!(target_os = "macos"),
+                    healthy_existing_main_listener,
+                    crate::is_server(),
+                ) {
+                    IpcStartFailureAction::ExitSuccessfully => {
+                        log::info!(
+                            "Main IPC is already served by a healthy UniLink instance; exiting duplicate server"
+                        );
+                        std::process::exit(0);
+                    }
+                    IpcStartFailureAction::StopIncumbentAndFail => {
+                        log::error!("ipc is occupied by another process, try kill it");
+                        std::thread::spawn(stop_main_window_process).join().ok();
+                    }
+                    IpcStartFailureAction::Fail => {}
                 }
                 std::process::exit(-1);
             }
@@ -644,6 +661,56 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum IpcStartFailureAction {
+    ExitSuccessfully,
+    StopIncumbentAndFail,
+    Fail,
+}
+
+fn ipc_start_failure_action(
+    target_is_macos: bool,
+    healthy_existing_main_listener: bool,
+    current_process_is_server: bool,
+) -> IpcStartFailureAction {
+    if target_is_macos && healthy_existing_main_listener {
+        IpcStartFailureAction::ExitSuccessfully
+    } else if current_process_is_server {
+        IpcStartFailureAction::StopIncumbentAndFail
+    } else {
+        IpcStartFailureAction::Fail
+    }
+}
+
+#[cfg(test)]
+mod ipc_start_failure_tests {
+    use super::{ipc_start_failure_action, IpcStartFailureAction};
+
+    #[test]
+    fn macos_duplicate_exits_successfully_only_for_a_healthy_incumbent() {
+        assert_eq!(
+            ipc_start_failure_action(true, true, true),
+            IpcStartFailureAction::ExitSuccessfully
+        );
+        assert_eq!(
+            ipc_start_failure_action(true, false, true),
+            IpcStartFailureAction::StopIncumbentAndFail
+        );
+    }
+
+    #[test]
+    fn other_failures_keep_existing_recovery_behavior() {
+        assert_eq!(
+            ipc_start_failure_action(false, true, true),
+            IpcStartFailureAction::StopIncumbentAndFail
+        );
+        assert_eq!(
+            ipc_start_failure_action(true, false, false),
+            IpcStartFailureAction::Fail
+        );
     }
 }
 
@@ -783,8 +850,7 @@ async fn sync_and_watch_config_dir(sync_done_tx: Option<tokio::sync::oneshot::Se
                 loop {
                     sleep(CONFIG_SYNC_INTERVAL_SECS).await;
                     let cfg = (Config::get(), Config2::get());
-                    let should_sync =
-                        cfg != cfg0 || (is_root_config_empty && !cfg.0.is_empty());
+                    let should_sync = cfg != cfg0 || (is_root_config_empty && !cfg.0.is_empty());
                     if should_sync {
                         if is_root_config_empty {
                             log::info!("root config is empty, sync our config to root");

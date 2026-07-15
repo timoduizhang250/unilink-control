@@ -221,7 +221,7 @@ index 8f3c410..5a52c44 100644
  
      #[test]
 diff --git a/src/websocket.rs b/src/websocket.rs
-index 7bf2108..f630496 100644
+index 7bf2108..ab4ade8 100644
 --- a/src/websocket.rs
 +++ b/src/websocket.rs
 @@ -389,7 +389,9 @@ pub fn check_ws(endpoint: &str) -> String {
@@ -235,7 +235,7 @@ index 7bf2108..f630496 100644
              "wss"
          } else {
              "ws"
-@@ -417,9 +419,10 @@ mod tests {
+@@ -417,9 +419,16 @@ mod tests {
          assert_eq!(check_ws("127.0.0.1:21115"), "ws://127.0.0.1:21118");
          assert_eq!(check_ws("127.0.0.1:21116"), "ws://127.0.0.1:21118");
          assert_eq!(check_ws("127.0.0.1:21117"), "ws://127.0.0.1:21119");
@@ -244,8 +244,14 @@ index 7bf2108..f630496 100644
 -        assert_eq!(check_ws("rustdesk.com:21117"), "ws://rustdesk.com/ws/relay");
 +        assert_eq!(check_ws("rustdesk.com:21115"), "wss://rustdesk.com/ws/id");
 +        assert_eq!(check_ws("rustdesk.com:21116"), "wss://rustdesk.com/ws/id");
-+        assert_eq!(check_ws("rustdesk.com:21117"), "wss://rustdesk.com/ws/relay");
-+        assert_eq!(check_ws("rs-ny.rustdesk.com:21116"), "wss://rs-ny.rustdesk.com/ws/id");
++        assert_eq!(
++            check_ws("rustdesk.com:21117"),
++            "wss://rustdesk.com/ws/relay"
++        );
++        assert_eq!(
++            check_ws("rs-ny.rustdesk.com:21116"),
++            "wss://rs-ny.rustdesk.com/ws/id"
++        );
          // set relay-server without port
          Config::set_option("relay-server".to_string(), "127.0.0.1".to_string());
          Config::set_option(
