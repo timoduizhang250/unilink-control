@@ -5,7 +5,7 @@ use hbb_common::{
     log,
     tokio::{
         self,
-        fs::File,
+        fs::OpenOptions,
         io::AsyncWriteExt,
         sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     },
@@ -16,6 +16,39 @@ use std::{collections::HashMap, path::PathBuf, sync::Mutex, time::Duration};
 
 lazy_static! {
     static ref DOWNLOADERS: Mutex<HashMap<String, Downloader>> = Default::default();
+}
+
+const MAX_DOWNLOAD_ATTEMPTS: usize = 8;
+
+#[cfg(not(test))]
+fn retry_delay(attempt: usize) -> Duration {
+    Duration::from_secs((1_u64 << attempt.min(4)).min(20))
+}
+
+#[cfg(test)]
+fn retry_delay(_attempt: usize) -> Duration {
+    Duration::from_millis(50)
+}
+
+fn parse_content_range(value: &str) -> Option<(u64, u64)> {
+    let value = value.strip_prefix("bytes ")?;
+    let (range, total) = value.split_once('/')?;
+    let (start, _) = range.split_once('-')?;
+    Some((start.parse().ok()?, total.parse().ok()?))
+}
+
+fn response_total_size(response: &reqwest::Response, offset: u64) -> Option<u64> {
+    if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+        let value = response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)?
+            .to_str()
+            .ok()?;
+        let (start, total) = parse_content_range(value)?;
+        (start == offset).then_some(total)
+    } else {
+        response.content_length()
+    }
 }
 
 /// This struct is used to return the download data to the caller.
@@ -69,7 +102,11 @@ pub fn download_file(
     if let Some(p) = stale_path {
         if p.exists() {
             if let Err(e) = std::fs::remove_file(&p) {
-                log::warn!("Failed to remove stale download file {}: {}", p.display(), e);
+                log::warn!(
+                    "Failed to remove stale download file {}: {}",
+                    p.display(),
+                    e
+                );
             }
         }
     }
@@ -108,7 +145,11 @@ pub fn download_file(
     if let Some(p) = stale_path_after_check {
         if p.exists() {
             if let Err(e) = std::fs::remove_file(&p) {
-                log::warn!("Failed to remove stale download file {}: {}", p.display(), e);
+                log::warn!(
+                    "Failed to remove stale download file {}: {}",
+                    p.display(),
+                    e
+                );
             }
         }
     }
@@ -167,114 +208,177 @@ async fn do_download(
     auto_del_dur: Option<Duration>,
     mut rx_cancel: UnboundedReceiver<()>,
 ) -> ResultType<bool> {
-    let client = create_http_client_async_with_url(&url).await;
+    let mut downloaded_size = 0_u64;
+    let mut last_error = "download did not start".to_owned();
 
-    let mut is_all_downloaded = false;
-    tokio::select! {
-        _ = rx_cancel.recv() => {
-            return Ok(is_all_downloaded);
+    for attempt in 0..MAX_DOWNLOAD_ATTEMPTS {
+        if attempt > 0 {
+            let delay = retry_delay(attempt - 1);
+            log::warn!(
+                "Retrying download {} from byte {} in {:?} (attempt {}/{})",
+                id,
+                downloaded_size,
+                delay,
+                attempt + 1,
+                MAX_DOWNLOAD_ATTEMPTS
+            );
+            tokio::select! {
+                _ = rx_cancel.recv() => return Ok(false),
+                _ = tokio::time::sleep(delay) => {}
+            }
         }
-        head_resp = client.head(&url).send() => {
-            match head_resp {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        let total_size = resp
-                            .headers()
-                            .get(reqwest::header::CONTENT_LENGTH)
-                            .and_then(|ct_len| ct_len.to_str().ok())
-                            .and_then(|ct_len| ct_len.parse::<u64>().ok());
-                        let Some(total_size) = total_size else {
-                            bail!("Failed to get content length");
-                        };
-                        DOWNLOADERS.lock().unwrap().get_mut(id).map(|downloader| {
-                            downloader.total_size = Some(total_size);
-                        });
-                    } else {
-                        bail!("Failed to get content length: {}", resp.status());
+
+        let client = tokio::select! {
+            _ = rx_cancel.recv() => return Ok(false),
+            client = create_http_client_async_with_url(&url) => client,
+        };
+        let mut request = client.get(&url);
+        if downloaded_size > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={downloaded_size}-"));
+        }
+        let response = tokio::select! {
+            _ = rx_cancel.recv() => return Ok(false),
+            response = request.send() => response,
+        };
+        let mut response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = error.to_string();
+                log::warn!(
+                    "Download request {} failed on attempt {}/{}: {}",
+                    id,
+                    attempt + 1,
+                    MAX_DOWNLOAD_ATTEMPTS,
+                    last_error
+                );
+                continue;
+            }
+        };
+        if !response.status().is_success() {
+            bail!("Failed to download file: {}", response.status());
+        }
+
+        let append =
+            downloaded_size > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+        let Some(response_total) = response_total_size(&response, downloaded_size) else {
+            last_error = "Download response has no valid total size".to_owned();
+            continue;
+        };
+        let total_size = Some(response_total);
+
+        if downloaded_size > 0 && !append {
+            log::warn!(
+                "Server ignored the range request for {}, restarting from byte 0",
+                id
+            );
+            downloaded_size = 0;
+            if path.is_none() {
+                if let Some(downloader) = DOWNLOADERS.lock().unwrap().get_mut(id) {
+                    downloader.data.clear();
+                    downloader.downloaded_size = 0;
+                }
+            }
+        }
+        if let Some(downloader) = DOWNLOADERS.lock().unwrap().get_mut(id) {
+            downloader.total_size = total_size;
+            downloader.downloaded_size = downloaded_size;
+        }
+
+        let mut dest = if let Some(path) = path.as_ref() {
+            let mut options = OpenOptions::new();
+            options.create(true).write(true);
+            if append {
+                options.append(true);
+            } else {
+                options.truncate(true);
+            }
+            Some(options.open(path).await?)
+        } else {
+            None
+        };
+
+        let mut stream_error = None;
+        loop {
+            let chunk = tokio::select! {
+                _ = rx_cancel.recv() => return Ok(false),
+                chunk = response.chunk() => chunk,
+            };
+            match chunk {
+                Ok(Some(chunk)) => {
+                    if let Some(file) = dest.as_mut() {
+                        file.write_all(&chunk).await?;
                     }
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-    }
-
-    let mut response;
-    tokio::select! {
-        _ = rx_cancel.recv() => {
-            return Ok(is_all_downloaded);
-        }
-        resp = client.get(url).send() => {
-            response = resp?;
-        }
-    }
-
-    let mut dest: Option<File> = None;
-    if let Some(p) = path {
-        dest = Some(File::create(p).await?);
-    }
-
-    loop {
-        tokio::select! {
-            _ = rx_cancel.recv() => {
-                break;
-            }
-            chunk = response.chunk() => {
-                match chunk {
-                    Ok(Some(chunk)) => {
-                        match dest {
-                            Some(ref mut f) => {
-                                f.write_all(&chunk).await?;
-                                f.flush().await?;
-                                DOWNLOADERS.lock().unwrap().get_mut(id).map(|downloader| {
-                                    downloader.downloaded_size += chunk.len() as u64;
-                                });
-                            }
-                            None => {
-                                DOWNLOADERS.lock().unwrap().get_mut(id).map(|downloader| {
-                                    downloader.data.extend_from_slice(&chunk);
-                                    downloader.downloaded_size += chunk.len() as u64;
-                                });
-                            }
+                    downloaded_size += chunk.len() as u64;
+                    if let Some(downloader) = DOWNLOADERS.lock().unwrap().get_mut(id) {
+                        if path.is_none() {
+                            downloader.data.extend_from_slice(&chunk);
                         }
+                        downloader.downloaded_size = downloaded_size;
                     }
-                    Ok(None) => {
-                        is_all_downloaded = true;
-                        break;
-                    },
-                    Err(e) => {
-                        log::error!("Download {} failed: {}", id, e);
-                        return Err(e.into());
-                    }
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    stream_error = Some(error.to_string());
+                    break;
                 }
             }
         }
-    }
-
-    if let Some(mut f) = dest.take() {
-        f.flush().await?;
-    }
-
-    if let Some(ref mut downloader) = DOWNLOADERS.lock().unwrap().get_mut(id) {
-        downloader.finished = true;
-    }
-    if is_all_downloaded {
-        let id_del = id.to_string();
-        if let Some(dur) = auto_del_dur {
-            tokio::spawn(async move {
-                tokio::time::sleep(dur).await;
-                DOWNLOADERS.lock().unwrap().remove(&id_del);
-            });
+        if let Some(file) = dest.as_mut() {
+            file.flush().await?;
         }
+
+        if let Some(error) = stream_error {
+            last_error = error;
+            log::warn!(
+                "Download stream {} stopped at byte {} on attempt {}/{}: {}",
+                id,
+                downloaded_size,
+                attempt + 1,
+                MAX_DOWNLOAD_ATTEMPTS,
+                last_error
+            );
+            continue;
+        }
+        if Some(downloaded_size) == total_size {
+            if let Some(downloader) = DOWNLOADERS.lock().unwrap().get_mut(id) {
+                downloader.finished = true;
+            }
+            let id_del = id.to_string();
+            if let Some(dur) = auto_del_dur {
+                tokio::spawn(async move {
+                    tokio::time::sleep(dur).await;
+                    DOWNLOADERS.lock().unwrap().remove(&id_del);
+                });
+            }
+            return Ok(true);
+        }
+        last_error = format!(
+            "Download ended at byte {} of {}",
+            downloaded_size,
+            total_size.unwrap_or_default()
+        );
     }
-    Ok(is_all_downloaded)
+
+    bail!(
+        "Download failed after {} attempts: {}",
+        MAX_DOWNLOAD_ATTEMPTS,
+        last_error
+    )
 }
 
 pub fn get_download_data(id: &str) -> ResultType<DownloadData> {
     let downloaders = DOWNLOADERS.lock().unwrap();
     if let Some(downloader) = downloaders.get(id) {
-        let downloaded_size = downloader.downloaded_size;
+        // Do not let polling clients launch the installer before the final
+        // file flush and response-completion checks have finished.
+        let downloaded_size = if !downloader.finished
+            && downloader.total_size == Some(downloader.downloaded_size)
+            && downloader.downloaded_size > 0
+        {
+            downloader.downloaded_size - 1
+        } else {
+            downloader.downloaded_size
+        };
         let total_size = downloader.total_size.clone();
         let error = downloader.error.clone();
         let data = if total_size.unwrap_or(0) == downloaded_size && downloader.path.is_none() {
@@ -306,4 +410,136 @@ pub fn cancel(id: &str) {
 
 pub fn remove(id: &str) {
     let _ = DOWNLOADERS.lock().unwrap().remove(id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+        time::{Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn parses_content_range_total() {
+        assert_eq!(
+            parse_content_range("bytes 1024-2047/4096"),
+            Some((1024, 4096))
+        );
+        assert_eq!(parse_content_range("bytes */4096"), None);
+        assert_eq!(parse_content_range("invalid"), None);
+    }
+
+    #[test]
+    fn resumes_a_file_after_the_server_drops_the_first_response() {
+        let payload: Vec<u8> = (0..(128 * 1024)).map(|index| (index % 251) as u8).collect();
+        let split_at = payload.len() / 2;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_payload = payload.clone();
+        let server = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut sent_partial_response = false;
+            while Instant::now() < deadline {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(value) => value,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
+                    Err(error) => panic!("test server accept failed: {error}"),
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 2048];
+                while !request.windows(4).any(|value| value == b"\r\n\r\n") {
+                    let read = stream.read(&mut buffer).unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                let request = String::from_utf8_lossy(&request);
+                if request.starts_with("HEAD ") {
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        server_payload.len()
+                    )
+                    .unwrap();
+                    continue;
+                }
+
+                let range_start = request.lines().find_map(|line| {
+                    line.strip_prefix("Range: bytes=")
+                        .or_else(|| line.strip_prefix("range: bytes="))
+                        .and_then(|value| value.split('-').next())
+                        .and_then(|value| value.parse::<usize>().ok())
+                });
+                if !sent_partial_response && range_start.is_none() {
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        server_payload.len()
+                    )
+                    .unwrap();
+                    stream.write_all(&server_payload[..split_at]).unwrap();
+                    stream.flush().unwrap();
+                    sent_partial_response = true;
+                    continue;
+                }
+
+                let start = range_start.expect("resumed request did not include a Range header");
+                write!(
+                    stream,
+                    "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\nConnection: close\r\n\r\n",
+                    server_payload.len() - start,
+                    start,
+                    server_payload.len() - 1,
+                    server_payload.len()
+                )
+                .unwrap();
+                stream.write_all(&server_payload[start..]).unwrap();
+                stream.flush().unwrap();
+                return;
+            }
+            panic!("test server timed out before receiving the resumed request");
+        });
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "unilink-downloader-resume-{}-{unique}.bin",
+            std::process::id()
+        ));
+        std::fs::remove_file(&path).ok();
+        let url = format!("http://{address}/update.bin");
+        let id = download_file(url, Some(path.clone()), None).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let data = get_download_data(&id).unwrap();
+            if let Some(error) = data.error {
+                panic!("download failed instead of resuming: {error}");
+            }
+            if data.total_size == Some(payload.len() as u64)
+                && data.downloaded_size == payload.len() as u64
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline, "resumed download timed out");
+            thread::sleep(Duration::from_millis(25));
+        }
+
+        assert_eq!(std::fs::read(&path).unwrap(), payload);
+        remove(&id);
+        std::fs::remove_file(path).unwrap();
+        server.join().unwrap();
+    }
 }

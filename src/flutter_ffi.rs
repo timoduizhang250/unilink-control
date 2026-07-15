@@ -2973,7 +2973,7 @@ pub fn main_set_common(_key: String, _value: String) {
     }
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        use crate::updater::get_download_file_from_url;
+        use crate::updater::{get_download_file_from_url, verify_downloaded_update};
         if _key == "download-new-version" {
             let download_url = _value.clone();
             let event_key = "download-new-version".to_owned();
@@ -3004,6 +3004,11 @@ pub fn main_set_common(_key: String, _value: String) {
                     new_version_file.to_str()
                 );
                 if let Some(f) = new_version_file.to_str() {
+                    if let Err(e) = verify_downloaded_update(&new_version_file) {
+                        log::error!("Downloaded update verification failed: {}", e);
+                        std::fs::remove_file(&new_version_file).ok();
+                        return;
+                    }
                     // 1.4.0 does not support "--update"
                     // But we can assume that the new version supports it.
 
@@ -3023,6 +3028,11 @@ pub fn main_set_common(_key: String, _value: String) {
             #[cfg(target_os = "macos")]
             {
                 if let Some(new_version_file) = get_download_file_from_url(&_value) {
+                    if let Err(e) = verify_downloaded_update(&new_version_file) {
+                        log::error!("Downloaded update verification failed: {}", e);
+                        fs::remove_file(&new_version_file).ok();
+                        return;
+                    }
                     if let Some(f) = new_version_file.to_str() {
                         crate::platform::macos::extract_update_dmg(f);
                     } else {

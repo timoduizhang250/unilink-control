@@ -96,6 +96,7 @@ pub mod input {
 lazy_static::lazy_static! {
     pub static ref SOFTWARE_UPDATE_URL: Arc<Mutex<String>> = Default::default();
     pub static ref SOFTWARE_UPDATE_DOWNLOAD_URL: Arc<Mutex<String>> = Default::default();
+    pub static ref SOFTWARE_UPDATE_SHA256: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_ID: Arc<Mutex<String>> = Default::default();
     pub static ref DEVICE_NAME: Arc<Mutex<String>> = Default::default();
     static ref PUBLIC_IPV6_ADDR: Arc<Mutex<(Option<SocketAddr>, Option<Instant>)>> = Default::default();
@@ -1015,6 +1016,7 @@ fn github_release_page_from_asset_url(asset_url: &str, version: &str) -> Option<
 fn clear_software_update() {
     *SOFTWARE_UPDATE_URL.lock().unwrap() = "".to_string();
     *SOFTWARE_UPDATE_DOWNLOAD_URL.lock().unwrap() = "".to_string();
+    *SOFTWARE_UPDATE_SHA256.lock().unwrap() = "".to_string();
 }
 
 async fn do_check_unilink_software_update() -> hbb_common::ResultType<()> {
@@ -1109,6 +1111,7 @@ async fn do_check_unilink_software_update() -> hbb_common::ResultType<()> {
     }
     *SOFTWARE_UPDATE_URL.lock().unwrap() = release_url;
     *SOFTWARE_UPDATE_DOWNLOAD_URL.lock().unwrap() = download_url;
+    *SOFTWARE_UPDATE_SHA256.lock().unwrap() = checksum;
     Ok(())
 }
 
@@ -1161,6 +1164,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
         }
         *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url;
         *SOFTWARE_UPDATE_DOWNLOAD_URL.lock().unwrap() = "".to_string();
+        *SOFTWARE_UPDATE_SHA256.lock().unwrap() = "".to_string();
     } else {
         clear_software_update();
     }

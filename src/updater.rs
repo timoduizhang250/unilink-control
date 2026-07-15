@@ -1,8 +1,12 @@
-use crate::{common::do_check_software_update, hbbs_http::create_http_client_with_url};
-use hbb_common::{bail, config, log, ResultType};
+use crate::{common::do_check_software_update, hbbs_http::downloader};
+use hbb_common::{
+    bail, config, log,
+    sha2::{Digest, Sha256},
+    ResultType,
+};
 use std::{
-    io::Write,
-    path::PathBuf,
+    io::Read,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
         mpsc::{channel, Receiver, Sender},
@@ -96,20 +100,28 @@ fn start_auto_update_check() -> Sender<UpdateMsg> {
 }
 
 fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
-    std::thread::sleep(Duration::from_secs(30));
-    if let Err(e) = check_update(false) {
-        log::error!("Error checking for updates: {}", e);
-    }
-
     const MIN_INTERVAL: Duration = Duration::from_secs(60 * 10);
     const RETRY_INTERVAL: Duration = Duration::from_secs(60 * 30);
+
+    std::thread::sleep(Duration::from_secs(30));
+    let initial_failed = if let Err(e) = check_update(false) {
+        log::error!("Error checking for updates: {}", e);
+        true
+    } else {
+        false
+    };
     let mut last_check_time = Instant::now();
-    let mut check_interval = DUR_ONE_DAY;
+    let mut check_interval = if initial_failed {
+        RETRY_INTERVAL
+    } else {
+        DUR_ONE_DAY
+    };
     loop {
         let recv_res = rx_msg.recv_timeout(check_interval);
         match &recv_res {
             Ok(UpdateMsg::CheckUpdate) | Err(_) => {
-                if last_check_time.elapsed() < MIN_INTERVAL {
+                let manually = matches!(&recv_res, Ok(UpdateMsg::CheckUpdate));
+                if !manually && last_check_time.elapsed() < MIN_INTERVAL {
                     // log::debug!("Update check skipped due to minimum interval.");
                     continue;
                 }
@@ -118,7 +130,7 @@ fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
                     check_interval = RETRY_INTERVAL;
                     continue;
                 }
-                if let Err(e) = check_update(matches!(recv_res, Ok(UpdateMsg::CheckUpdate))) {
+                if let Err(e) = check_update(manually) {
                     log::error!("Error checking for updates: {}", e);
                     check_interval = RETRY_INTERVAL;
                 } else {
@@ -128,6 +140,75 @@ fn start_auto_update_check_(rx_msg: Receiver<UpdateMsg>) {
             }
             Ok(UpdateMsg::Exit) => break,
         }
+    }
+}
+
+fn expected_update_sha256() -> String {
+    crate::common::SOFTWARE_UPDATE_SHA256
+        .lock()
+        .unwrap()
+        .clone()
+}
+
+pub fn verify_downloaded_update(path: &Path) -> ResultType<()> {
+    let expected = expected_update_sha256();
+    if expected.is_empty() {
+        return Ok(());
+    }
+
+    let actual = downloaded_update_sha256(path)?;
+    if actual != expected {
+        bail!(
+            "Downloaded update checksum mismatch: expected {}, got {}",
+            expected,
+            actual
+        );
+    }
+    Ok(())
+}
+
+fn downloaded_update_sha256(path: &Path) -> ResultType<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn download_update_file(download_url: &str, file_path: &Path) -> ResultType<()> {
+    if file_path.exists() {
+        if !expected_update_sha256().is_empty() && verify_downloaded_update(file_path).is_ok() {
+            return Ok(());
+        }
+        std::fs::remove_file(file_path)?;
+    }
+
+    let id =
+        downloader::download_file(download_url.to_owned(), Some(file_path.to_path_buf()), None)?;
+    loop {
+        let data = downloader::get_download_data(&id)?;
+        if let Some(error) = data.error {
+            downloader::remove(&id);
+            std::fs::remove_file(file_path).ok();
+            bail!("{}", error);
+        }
+        if let Some(total_size) = data.total_size {
+            if total_size == data.downloaded_size {
+                downloader::remove(&id);
+                if let Err(error) = verify_downloaded_update(file_path) {
+                    std::fs::remove_file(file_path).ok();
+                    return Err(error);
+                }
+                return Ok(());
+            }
+        }
+        std::thread::sleep(Duration::from_millis(250));
     }
 }
 
@@ -142,8 +223,13 @@ fn check_update(manually: bool) -> ResultType<()> {
         );
         return Ok(());
     }
-    if do_check_software_update().is_err() {
-        // ignore
+    if let Err(error) = do_check_software_update() {
+        if crate::common::get_app_name()
+            .to_lowercase()
+            .contains("unilink")
+        {
+            return Err(error);
+        }
         return Ok(());
     }
 
@@ -186,45 +272,10 @@ fn check_update(manually: bool) -> ResultType<()> {
             format!("{}/rustdesk-{}-x86-sciter.exe", download_url, version)
         };
         log::debug!("New version available: {}", &version);
-        let client = create_http_client_with_url(&download_url);
         let Some(file_path) = get_download_file_from_url(&download_url) else {
             bail!("Failed to get the file path from the URL: {}", download_url);
         };
-        let mut is_file_exists = false;
-        if file_path.exists() {
-            // Check if the file size is the same as the server file size
-            // If the file size is the same, we don't need to download it again.
-            let file_size = std::fs::metadata(&file_path)?.len();
-            let response = client.head(&download_url).send()?;
-            if !response.status().is_success() {
-                bail!("Failed to get the file size: {}", response.status());
-            }
-            let total_size = response
-                .headers()
-                .get(reqwest::header::CONTENT_LENGTH)
-                .and_then(|ct_len| ct_len.to_str().ok())
-                .and_then(|ct_len| ct_len.parse::<u64>().ok());
-            let Some(total_size) = total_size else {
-                bail!("Failed to get content length");
-            };
-            if file_size == total_size {
-                is_file_exists = true;
-            } else {
-                std::fs::remove_file(&file_path)?;
-            }
-        }
-        if !is_file_exists {
-            let response = client.get(&download_url).send()?;
-            if !response.status().is_success() {
-                bail!(
-                    "Failed to download the new version file: {}",
-                    response.status()
-                );
-            }
-            let file_data = response.bytes()?;
-            let mut file = std::fs::File::create(&file_path)?;
-            file.write_all(&file_data)?;
-        }
+        download_update_file(&download_url, &file_path)?;
         // We have checked if the `conns` is empty before, but we need to check again.
         // No need to care about the downloaded file here, because it's rare case that the `conns` are empty
         // before the download, but not empty after the download.
@@ -327,4 +378,28 @@ fn update_new_version(update_msi: bool, version: &str, file_path: &PathBuf) {
 pub fn get_download_file_from_url(url: &str) -> Option<PathBuf> {
     let filename = url.split('/').last()?;
     Some(std::env::temp_dir().join(filename))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn calculates_downloaded_update_sha256() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "unilink-update-sha-{}-{unique}.bin",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            downloaded_update_sha256(&path).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
 }
