@@ -565,6 +565,18 @@ def build_flutter_dmg(version, features):
         f'FLUTTER_XCODE_ARCHS={mac_arch} FLUTTER_XCODE_ONLY_ACTIVE_ARCH=YES flutter build macos --release')
     app_bundle = f'./build/macos/Build/Products/Release/{macos_app_name}.app'
     system2(f'cp -rf ../target/release/service "{app_bundle}/Contents/MacOS/"')
+    codesign_identity = os.environ.get('MACOS_CODESIGN_IDENTITY', '-')
+    codesign_cmd = [
+        'codesign', '--force', '--deep', '--sign', codesign_identity,
+        '--preserve-metadata=identifier,entitlements,flags,runtime',
+    ]
+    if codesign_identity != '-':
+        codesign_cmd.append('--timestamp')
+    subprocess.run([*codesign_cmd, app_bundle], check=True)
+    subprocess.run(
+        ['codesign', '--verify', '--deep', '--strict', '--verbose=2', app_bundle],
+        check=True,
+    )
     dmg_root = './build/macos/Build/Products/Release/dmg'
     dmg_name = f'UniLink-Control-{version}-{mac_arch}.dmg'
     staged_app = f'{dmg_root}/{macos_app_name}.app'
@@ -576,12 +588,14 @@ def build_flutter_dmg(version, features):
     system2(f'ln -s /Applications "{dmg_root}/Applications"')
     system2(
         f'hdiutil create -volname "UniLink Control" -srcfolder "{dmg_root}" -ov -format UDZO "{dmg_name}"')
+    system2(f'hdiutil verify "{dmg_name}"')
     system2(f'rm -rf "{verify_mount}" "{verify_root}"')
     system2(f'mkdir -p "{verify_mount}" "{verify_root}"')
     try:
         system2(f'hdiutil attach "{dmg_name}" -mountpoint "{verify_mount}" -nobrowse -readonly')
         system2(f'ditto --rsrc --extattr --acl "{verify_mount}/{macos_app_name}.app" "{verify_root}/{macos_app_name}.app"')
         system2(f'test -x "{verify_root}/{macos_app_name}.app/Contents/MacOS/{macos_app_name}"')
+        system2(f'codesign --verify --deep --strict --verbose=2 "{verify_root}/{macos_app_name}.app"')
     finally:
         os.system(f'hdiutil detach "{verify_mount}" >/dev/null 2>&1')
         system2(f'rm -rf "{verify_mount}" "{verify_root}"')
