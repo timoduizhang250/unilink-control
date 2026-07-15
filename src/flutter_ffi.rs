@@ -3030,7 +3030,7 @@ pub fn main_set_common(_key: String, _value: String) {
                 if let Some(new_version_file) = get_download_file_from_url(&_value) {
                     if let Err(e) = verify_downloaded_update(&new_version_file) {
                         log::error!("Downloaded update verification failed: {}", e);
-                        fs::remove_file(&new_version_file).ok();
+                        std::fs::remove_file(&new_version_file).ok();
                         return;
                     }
                     if let Some(f) = new_version_file.to_str() {
