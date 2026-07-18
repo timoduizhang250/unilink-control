@@ -77,7 +77,32 @@ fn install_android_deps() {
     println!("cargo:rustc-link-lib=OpenSLES");
 }
 
+fn configure_release_metadata() {
+    let cargo_version = std::env::var("CARGO_PKG_VERSION").unwrap();
+    let pubspec = std::fs::read_to_string("flutter/pubspec.yaml")
+        .expect("flutter/pubspec.yaml must exist for a UniLink build");
+    let version_line = pubspec
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("version:"))
+        .map(str::trim)
+        .expect("flutter/pubspec.yaml must contain a version");
+    let (flutter_version, build_number) = version_line
+        .split_once('+')
+        .expect("Flutter version must include a build number");
+    assert_eq!(
+        flutter_version, cargo_version,
+        "Cargo.toml and flutter/pubspec.yaml versions must match"
+    );
+    assert!(
+        build_number.parse::<u64>().is_ok_and(|number| number > 0),
+        "Flutter build number must be a positive integer"
+    );
+    println!("cargo:rustc-env=UNILINK_BUILD_NUMBER={build_number}");
+    println!("cargo:rerun-if-changed=flutter/pubspec.yaml");
+}
+
 fn main() {
+    configure_release_metadata();
     hbb_common::gen_version();
     install_android_deps();
     #[cfg(all(windows, feature = "inline"))]

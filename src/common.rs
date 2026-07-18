@@ -1,8 +1,10 @@
 use std::{
     collections::HashMap,
     future::Future,
+    io::Read,
     net::{SocketAddr, ToSocketAddrs},
-    sync::{Arc, Mutex, RwLock},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock, RwLock},
     task::Poll,
 };
 
@@ -40,7 +42,7 @@ use hbb_common::{
 
 use crate::{
     hbbs_http::{create_http_client_async, get_url_for_tls},
-    ui_interface::{get_api_server as ui_get_api_server, get_option, is_installed, set_option},
+    ui_interface::{get_api_server as ui_get_api_server, get_option, set_option},
 };
 
 #[derive(Debug, Eq, PartialEq)]
@@ -135,6 +137,86 @@ pub fn global_init() -> bool {
 }
 
 pub fn global_clean() {}
+
+fn file_sha256_hex(path: &Path) -> ResultType<String> {
+    use hbb_common::sha2::{Digest, Sha256};
+
+    let mut file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open runtime binary {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("Failed to read runtime binary {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn runtime_core_binary(executable: &Path) -> Option<PathBuf> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = executable;
+        return None;
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let parent = executable.parent()?;
+        for name in ["librustdesk.dll", "librustdesk.dylib", "liblibrustdesk.so"] {
+            let candidate = parent.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        Some(executable.to_path_buf())
+    }
+}
+
+pub fn log_runtime_identity(role: &str) {
+    let role = if role.is_empty() { "main" } else { role };
+    let executable = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.canonicalize().ok().or(Some(path)));
+    log::info!(
+        "UniLink runtime identity: version={}+{}, build_date={}, role={}, app={}, platform={}/{}, executable={}",
+        crate::VERSION,
+        crate::BUILD_NUMBER,
+        crate::BUILD_DATE,
+        role,
+        crate::get_app_name(),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        executable
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "unavailable".to_owned()),
+    );
+
+    static CORE_IDENTITY: OnceLock<Option<(PathBuf, String)>> = OnceLock::new();
+    let identity = CORE_IDENTITY.get_or_init(|| {
+        let core = runtime_core_binary(executable.as_deref()?)?;
+        match file_sha256_hex(&core) {
+            Ok(hash) => Some((core, hash)),
+            Err(err) => {
+                log::warn!("Failed to hash UniLink runtime binary: {err}");
+                None
+            }
+        }
+    });
+    if let Some((path, hash)) = identity {
+        log::info!(
+            "UniLink runtime core: path={}, sha256={}",
+            path.display(),
+            hash
+        );
+    } else {
+        log::info!("UniLink runtime core: path=unavailable, sha256=unavailable");
+    }
+}
 
 #[inline]
 pub fn set_server_running(b: bool) {

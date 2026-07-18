@@ -1549,8 +1549,31 @@ fn get_after_install(
     netsh advfirewall firewall add rule name=\"{app_name} Service\" dir=out action=allow program=\"{exe}\" enable=yes
     netsh advfirewall firewall add rule name=\"{app_name} Service\" dir=in action=allow program=\"{exe}\" enable=yes
     {create_service}
+    {install_migration}
     reg add HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System /f /v SoftwareSASGeneration /t REG_DWORD /d 1
-    ", create_service=get_create_service(&exe))
+    ",
+        create_service = get_create_service(&exe),
+        install_migration = install_migration_cmd(&exe),
+    )
+}
+
+const INSTALL_MIGRATION_SCRIPT: &str = "unilink_windows_install_migration.ps1";
+
+fn install_migration_cmd(exe: &str) -> String {
+    let script = PathBuf::from(exe)
+        .parent()
+        .map(|path| path.join(INSTALL_MIGRATION_SCRIPT))
+        .unwrap_or_else(|| PathBuf::from(INSTALL_MIGRATION_SCRIPT));
+    format!(
+        r#"
+    if exist "{script}" (
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script}" -InstalledExe "{exe}" -ExpectedVersion "{version}"
+        if errorlevel 1 exit /b %errorlevel%
+    )
+    "#,
+        script = script.to_string_lossy(),
+        version = crate::VERSION,
+    )
 }
 
 pub fn install_me(options: &str, path: String, silent: bool, debug: bool) -> ResultType<()> {
@@ -3257,6 +3280,10 @@ fn get_directory_size_kb(path: &str) -> u64 {
     total_size / 1024
 }
 
+fn service_start_cmd(app_name: &str) -> String {
+    format!(r#"sc start "{}""#, app_name)
+}
+
 pub fn update_me(debug: bool) -> ResultType<()> {
     let app_name = crate::get_app_name();
     let src_exe = std::env::current_exe()?.to_string_lossy().to_string();
@@ -3370,7 +3397,7 @@ reg add \"{subkey}\" /f /v EstimatedSize /t REG_DWORD /d {size}
 
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
     let restore_service_cmd = if is_service_running {
-        format!("sc start {}", &app_name)
+        service_start_cmd(&app_name)
     } else {
         "".to_owned()
     };
@@ -3408,6 +3435,7 @@ taskkill /F /IM \"{app_name}.exe\"{filter}
 {copy_exe}
 {rename_exe}
 {remove_meta_toml}
+{install_migration}
 {restore_service_cmd}
 {uninstall_printer_cmd}
 {install_printer_cmd}
@@ -3417,6 +3445,7 @@ taskkill /F /IM \"{app_name}.exe\"{filter}
         copy_exe = copy_exe_cmd(&src_exe, &exe, &path)?,
         rename_exe = rename_exe_cmd(&src_exe, &path)?,
         remove_meta_toml = remove_meta_toml_cmd(is_msi.unwrap_or(true), &path),
+        install_migration = install_migration_cmd(&exe),
         sleep = if debug { "timeout 300" } else { "" },
     );
 
@@ -4608,6 +4637,23 @@ mod tests {
         assert_eq!(chr, Some('a'));
         let chr = get_char_from_vk(VK_ESCAPE as u32); // VK_ESC
         assert_eq!(chr, None)
+    }
+
+    #[test]
+    fn service_start_command_quotes_the_service_name() {
+        assert_eq!(
+            service_start_cmd("UniLink Control"),
+            r#"sc start "UniLink Control""#
+        );
+    }
+
+    #[test]
+    fn install_migration_uses_the_packaged_script_without_deleting_the_old_directory() {
+        let commands =
+            install_migration_cmd(r#"C:\Program Files\UniLink Control\UniLink Control.exe"#);
+        assert!(commands.contains(INSTALL_MIGRATION_SCRIPT));
+        assert!(commands.contains(r#"-ExpectedVersion "1.4.15""#));
+        assert!(!commands.contains("rd /s /q"));
     }
 
     #[cfg(not(target_pointer_width = "64"))]

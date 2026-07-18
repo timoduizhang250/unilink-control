@@ -30,6 +30,7 @@ pub mod ipc;
 pub mod ui;
 mod version;
 pub use version::*;
+pub const BUILD_NUMBER: &str = env!("UNILINK_BUILD_NUMBER");
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
 mod bridge_generated;
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]

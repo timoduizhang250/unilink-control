@@ -8,6 +8,7 @@ import urllib.request
 import shutil
 import hashlib
 import argparse
+import re
 import sys
 import subprocess
 import time
@@ -133,10 +134,11 @@ def install_windows_user_build(user_install_dir=None, launch=False):
             f"Missing built app: {src_exe}. Run a Flutter Windows build first."
         )
 
-    if user_install_dir:
-        dest = Path(user_install_dir).expanduser().resolve()
-    else:
-        dest = _windows_known_folder("LocalApplicationData", "LOCALAPPDATA") / "Programs" / flutter_app_name
+    if not user_install_dir:
+        raise RuntimeError(
+            "--install-user-dir is required. UniLink no longer creates a second AppData installation."
+        )
+    dest = Path(user_install_dir).expanduser().resolve()
 
     staging = dest.parent / f".{flutter_app_name}.staging"
     desktop = _windows_known_folder("Desktop", "USERPROFILE")
@@ -176,12 +178,30 @@ def install_windows_user_build(user_install_dir=None, launch=False):
         print("Launched user build.")
 
 
+def get_release_metadata():
+    cargo_text = Path("Cargo.toml").read_text(encoding="utf-8")
+    cargo_match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', cargo_text)
+    portable_text = Path("libs/portable/Cargo.toml").read_text(encoding="utf-8")
+    portable_match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', portable_text)
+    pubspec_text = Path("flutter/pubspec.yaml").read_text(encoding="utf-8")
+    flutter_match = re.search(
+        r'(?m)^version:\s*(\d+\.\d+\.\d+)\+(\d+)\s*$', pubspec_text
+    )
+    if not cargo_match or not portable_match or not flutter_match:
+        raise RuntimeError("Could not read all UniLink release versions")
+    version = cargo_match.group(1)
+    if portable_match.group(1) != version or flutter_match.group(1) != version:
+        raise RuntimeError(
+            "Cargo.toml, libs/portable/Cargo.toml and flutter/pubspec.yaml versions must match"
+        )
+    build_number = int(flutter_match.group(2))
+    if build_number <= 0:
+        raise RuntimeError("Flutter build number must be positive")
+    return version, build_number
+
+
 def get_version():
-    with open("Cargo.toml", encoding="utf-8") as fh:
-        for line in fh:
-            if line.startswith("version"):
-                return line.replace("version", "").replace("=", "").replace('"', '').strip()
-    return ''
+    return get_release_metadata()[0]
 
 
 def parse_rc_features(feature):
@@ -624,6 +644,8 @@ def build_flutter_windows(version, features, skip_portable_pack):
     system2('flutter build windows --release')
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
+                 flutter_build_dir_2)
+    shutil.copy2('scripts/unilink_windows_install_migration.ps1',
                  flutter_build_dir_2)
     if skip_portable_pack:
         return

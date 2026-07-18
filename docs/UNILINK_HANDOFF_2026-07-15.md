@@ -82,3 +82,13 @@ Pointer, drag, keyboard, deliberate disconnect, and reconnect remain to be recor
 - `patches/unilink-hbb-common.patch` was regenerated from the current submodule diff; reverse-apply verification passed and its SHA-256 is `78efc269a2375eece40053b0b80ba5d03acab8970b008a43b15078114ae79e13`.
 
 Publication is not complete. The current restricted execution account cannot read the existing Android signing key, cannot see the user-owned WSL Ubuntu distribution, and its GitHub CLI token returns HTTP 401. Do not replace the Android signing key because existing installations must remain upgrade-compatible. Keep this Windows PC on installed 1.4.12 until the published 1.4.13 automatic update is exercised.
+
+## Windows Mixed-Installation Finding - 2026-07-16
+
+The Windows PC is currently running more than one UniLink installation:
+
+- Program Files GUI/tray/service: `C:\Program Files\UniLink Control`, version 1.4.12+70.
+- Per-user GUI: `C:\Users\温工\AppData\Local\Programs\UniLink Control`, version 1.4.11+69.
+- The desktop shortcut and the per-user Start Menu shortcut still launch the 1.4.11 GUI, while the startup tray and service launch from Program Files.
+
+The user's successful connection is therefore useful as a connectivity result, but it is not a clean 1.4.12/1.4.13 regression test. The installation-consistency repair is deferred to 1.4.14. Until that work is completed, keep automatic updates disabled, preserve the currently working state, and do not remove the old per-user installation without a controlled backup and launch-path migration.

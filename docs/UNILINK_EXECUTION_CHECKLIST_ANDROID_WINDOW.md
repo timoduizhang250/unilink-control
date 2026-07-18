@@ -1,6 +1,6 @@
 # UniLink Control Master Execution Checklist
 
-Updated: 2026-07-15
+Updated: 2026-07-17
 Status legend:
 
 - [x] Verified: implemented and verified at the stated level.
@@ -15,7 +15,8 @@ UniLink makes Windows, macOS, and Android feel like one connected personal work 
 
 ## A. Product Foundation and Reliability
 
-- [~] Windows desktop UniLink can build and has been deployed before; current end-to-end regression still needs a fresh test.
+- [~] Windows desktop UniLink `1.4.15+73` builds and is installed from Program Files; current end-to-end remote-control regression still needs a fresh test.
+- [~] Windows now runs the Program Files `1.4.15+73` GUI/tray/service. The old AppData `1.4.11+69` executable was recoverably renamed to `.disabled-*`, launch paths point to Program Files, and configuration hashes were preserved; reboot and uninstall recovery remain unverified.
 - [~] Android UniLink debug APK builds and installs; latest LAN-RDP build has been generated but not installed on the currently disconnected ADB device.
 - [~] Windows/Mac/Android device and session UI exists; all visible actions still need a systematic functional audit.
 - [~] Android 1.4.11 -> Windows 1.4.11 over the official public server reached the live Windows desktop on 2026-07-15. The user confirmed the session connected and declined further input regression; pointer, drag, keyboard, disconnect, and reconnect remain unverified.
@@ -101,12 +102,19 @@ Acceptance: the UI is coherent, Chinese-readable, responsive, and every control 
 
 ## H. Release, Updates, and Trust
 
+The active coordinated release plan is `docs/UNILINK_RELEASE_CHECKLIST_1.4.15.md`. It supersedes 1.4.14 as the next three-platform release plan. The existing `docs/UNILINK_RELEASE_CHECKLIST_1.4.14.md` remains historical evidence for the Windows field build.
+
 - [x] UniLink Control 1.4.11 GitHub Release is published to `timoduizhang250/unilink-control-releases` with Windows x86_64 EXE, macOS x86_64 DMG, Android arm64 APK, and `latest.json`; release asset URLs returned HTTP 206 for range download checks, and the remote manifest hash matched the local generated manifest.
 - [x] The 1.4.11 macOS DMG was rebuilt after a Finder `-36` copy failure report; CI now stages the app bundle with `ditto`, mounts the generated DMG, copies `UniLink Control.app` back out, verifies the executable, and runs `hdiutil verify` before uploading.
 - [~] Android physical automatic update to 1.4.12 passed on 2026-07-15. Windows 1.4.11 found 1.4.12 but its Rust/reqwest download stream failed after about 15 MB; the old downloader had no retry or resume. Windows now retries, resumes with HTTP Range, verifies SHA-256 before install, and retries an initially failed update check. The forced-disconnect resume test and checksum test passed, the repaired 1.4.12 asset and manifest were published, and this PC was bootstrapped to installed version 1.4.12+70 with a matching built DLL hash. A future real 1.4.12 -> newer-version automatic update is still required before Windows is fully accepted. macOS physical automatic update remains unverified.
 - [~] The Intel Mac was manually bootstrapped from RustDesk/UniLink 1.4.8 to UniLink Control 1.4.12 build 70 on 2026-07-15. The old application and configuration were backed up, identity-bearing configuration hashes matched after migration, the GUI/user server/root service run from the new bundle, and LAN port 21118 is reachable. The published DMG exposed two release defects: the service binary was copied after app signing, invalidating strict code-sign verification, and the daemon plist used a shell command with an unquoted app path containing spaces. Source now re-signs and verifies after adding the service, verifies the finished DMG copy, and executes the service directly. A corrected DMG still needs a real Mac rebuild and publication. The Mac also has no routed internet through its current Ethernet gateway, so GitHub and rendezvous DNS checks time out until its network path is repaired.
 - [~] The upgraded Mac's new bundle ID required fresh macOS Screen Recording and Accessibility approval. Before approval, direct authentication succeeded but capture stayed at `Invalid display stream 0x0`. After approval and a clean single-instance user-server restart, a physical Windows -> Mac LAN session created a 1680x1050 VP9 video service and displayed the desktop continuously. Future upgrades must preserve or clearly request these permissions and avoid launching duplicate server instances during restart.
 - [~] UniLink Control 1.4.13+71 release candidate enables Windows `hwcodec,vram` and macOS `hwcodec`, fixes duplicate macOS `--server` startup handling, and has a verified Windows installer plus a passing focused Rust decision test. macOS and Android artifacts are not yet built or published, so the real 1.4.12 -> 1.4.13 automatic-update path remains unverified.
+- [x] UniLink Control 1.4.14 served as the Windows field build and was manually upgraded to Program Files `1.4.15+73` on 2026-07-18; 1.4.14 was not published as a coordinated three-platform release.
+- [~] 1.4.15 Windows installation consistency: controlled migration, configuration backup, stale AppData executable disabling, Program Files launch paths, startup identity logging, and same-version reinstall passed. Reboot, uninstall recovery, and a real GitHub 1.4.14 -> 1.4.15 automatic update remain required.
+- [~] LAN routing isolation is present in the Windows 1.4.14 field build: direct IP targets ignore implicit relay/WebSocket/proxy settings and 2 focused Rust tests passed. Explicit route intent, hostname handling, prevention of derived relay state persistence, and physical route-switching regression move to the 1.4.15 gate.
+- [ ] Existing UniLink/TigerVNC black-screen and Mac system-network repair are explicitly deferred from 1.4.15 by the 2026-07-17 product decision. Any new regression caused by 1.4.15 still blocks release.
+- [ ] 1.4.15 coordinated release: align Windows/macOS/Android to `1.4.15+73`, verify compatibility and route isolation, build all three artifacts, complete Windows/Android automatic updates plus Mac LAN manual upgrade, and publish one matching `latest.json`.
 - [ ] Establish a repeatable signed Windows release process.
 - [ ] Establish a repeatable signed/notarized macOS release process.
 - [~] Android release APK for 1.4.11 is built and published with SHA-256 verification; permission explanation, installation/update policy, and trusted distribution path still need product copy and real-device validation.
@@ -124,5 +132,7 @@ Acceptance: a nontechnical user can install, trust, update, and recover each pla
 5. Build Section F unified LAN/native-service paths.
 6. Finish functional UI/settings audit in Section G.
 7. Ship release/update work in Section H.
+
+Current release decision: treat 1.4.14 as a Windows field build and make `1.4.15+73` the next coordinated Windows/macOS/Android release. Keep automatic updates disabled until the 1.4.15 single-install, compatibility, route-isolation, artifact, and recovery gates pass. Existing black-screen work and Mac system-network repair are deferred, not claimed as fixed.
 
 Priority override: if the user reports a failure in basic remote control, file transfer, authentication, or installation, stop feature work and repair that foundation first.

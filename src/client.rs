@@ -1778,6 +1778,35 @@ impl Deref for LoginConfigHandler {
     }
 }
 
+fn is_direct_peer_id(id: &str) -> bool {
+    let peer = id.split('@').next().unwrap_or(id).trim();
+    let peer = peer
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(peer);
+    peer.parse::<std::net::IpAddr>().is_ok()
+        || peer.eq_ignore_ascii_case("localhost")
+        || peer.to_ascii_lowercase().ends_with(".local")
+}
+
+#[cfg(test)]
+mod direct_peer_id_tests {
+    use super::is_direct_peer_id;
+
+    #[test]
+    fn recognizes_ipv4_and_ipv6_targets() {
+        assert!(is_direct_peer_id("192.168.137.2"));
+        assert!(is_direct_peer_id("[fe80::1]"));
+    }
+
+    #[test]
+    fn does_not_treat_rendezvous_ids_or_hostnames_as_direct_ips() {
+        assert!(!is_direct_peer_id("502947008"));
+        assert!(is_direct_peer_id("hpdeimac.local"));
+        assert!(!is_direct_peer_id("502947008@rs-ny.rustdesk.com"));
+    }
+}
+
 impl LoginConfigHandler {
     /// Initialize the login config handler.
     ///
@@ -1857,11 +1886,14 @@ impl LoginConfigHandler {
         self.session_id = sid;
         self.supported_encoding = Default::default();
         self.clear_restarting_remote_device();
-        self.force_relay =
-            config::option2bool("force-always-relay", &self.get_option("force-always-relay"))
-                || force_relay
-                || use_ws()
-                || Config::is_proxy();
+        let direct_peer = is_direct_peer_id(&self.id);
+        self.force_relay = force_relay
+            || (!direct_peer
+                && (config::option2bool(
+                    "force-always-relay",
+                    &self.get_option("force-always-relay"),
+                ) || use_ws()
+                    || Config::is_proxy()));
         if let Some((real_id, server, key)) = &self.other_server {
             let other_server_key = self.get_option("other-server-key");
             if !other_server_key.is_empty() && key.is_empty() {
