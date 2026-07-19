@@ -1,6 +1,6 @@
 # UniLink Control Master Execution Checklist
 
-Updated: 2026-07-17
+Updated: 2026-07-19
 Status legend:
 
 - [x] Verified: implemented and verified at the stated level.
@@ -114,7 +114,7 @@ The active coordinated release plan is `docs/UNILINK_RELEASE_CHECKLIST_1.4.15.md
 - [~] 1.4.15 Windows installation consistency: controlled migration, configuration backup, stale AppData executable disabling, Program Files launch paths, startup identity logging, and same-version reinstall passed. Reboot, uninstall recovery, and a real GitHub 1.4.14 -> 1.4.15 automatic update remain required.
 - [~] LAN routing isolation is present in the Windows 1.4.14 field build: direct IP targets ignore implicit relay/WebSocket/proxy settings and 2 focused Rust tests passed. Explicit route intent, hostname handling, prevention of derived relay state persistence, and physical route-switching regression move to the 1.4.15 gate.
 - [ ] Existing UniLink/TigerVNC black-screen and Mac system-network repair are explicitly deferred from 1.4.15 by the 2026-07-17 product decision. Any new regression caused by 1.4.15 still blocks release.
-- [ ] 1.4.15 coordinated release: align Windows/macOS/Android to `1.4.15+73`, verify compatibility and route isolation, build all three artifacts, complete Windows/Android automatic updates plus Mac LAN manual upgrade, and publish one matching `latest.json`.
+- [~] 1.4.15 coordinated release was published on 2026-07-19 with matching Windows/macOS/Android artifacts and `latest.json`; compatibility/route regression, Windows and Android physical automatic updates, and Mac LAN manual upgrade remain required before full acceptance.
 - [ ] Establish a repeatable signed Windows release process.
 - [ ] Establish a repeatable signed/notarized macOS release process.
 - [~] Android release APK for 1.4.11 is built and published with SHA-256 verification; permission explanation, installation/update policy, and trusted distribution path still need product copy and real-device validation.

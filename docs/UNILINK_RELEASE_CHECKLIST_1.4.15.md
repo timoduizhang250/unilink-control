@@ -38,7 +38,7 @@ Release theme: 三端版本统一、连接路由稳定、Windows 单一安装、
 
 ## 三、P0-A 三端版本与兼容协议
 
-- [~] Flutter、Rust 和 Windows 制品已统一为 `1.4.15+73`，并加入构建期一致性检查；macOS、Android 制品和发布清单仍待第三批生成。
+- [x] Flutter、Rust、Windows 安装器、macOS Bundle、Android 包和发布清单已统一为 `1.4.15+73`，并加入构建期一致性检查。
 - [~] 启动日志已记录产品版本、构建号、可执行文件路径、核心库哈希和平台；Windows 静默安装与托盘日志已实测，GUI 及 macOS/Android 日志仍待验证。
 - [ ] 连接握手记录本端版本和对端版本，不再只显示 `21116`、离线或连接失败等模糊结果。
 - [ ] 保持与 `1.4.12`、`1.4.13`、`1.4.14` 的基础协议兼容；不得为了 1.4.15 无提示修改设备身份、密码或会话协议。
@@ -87,14 +87,14 @@ Release theme: 三端版本统一、连接路由稳定、Windows 单一安装、
 ## 七、P0-E 三端构建、更新与发布
 
 - [x] Windows x86_64 安装包已构建并校验；主程序为 `1.4.15+73`，核心 DLL 哈希与打包文件、安装文件和启动日志一致。
-- [ ] 构建并校验 Intel macOS DMG；应用、服务二进制和最终 DMG 在最后一步重新签名并验证。
+- [x] Intel macOS DMG 已由 GitHub Intel runner 构建；应用和服务加入后重新签名，DMG 完成校验、挂载回拷和严格签名验证。
 - [ ] 通过局域网手动把 Mac 从 1.4.12 升级到 1.4.15，保留设备身份和已有权限；不要求 Mac 在线访问 GitHub。
-- [ ] 构建 Android arm64 正式签名 APK，确认包名、显示名、版本号和升级安装兼容。
+- [x] Android arm64 正式签名 APK 已构建；包名 `com.unilink.control`、版本 `1.4.15 (73)` 和 UniLink Control 签名校验通过。
 - [ ] Windows 从当前 1.4.14 完成一次真实自动更新，验证断点续传、SHA-256 和安装后单一运行路径。
 - [ ] Android 从实际旧版本完成一次真实自动更新，并验证升级后连接配置保留。
-- [ ] 生成包含三个真实制品 URL、大小、版本和 SHA-256 的 `latest.json`。
-- [ ] 发布 GitHub Release 后，从远端重新下载三个制品和清单，核对大小、哈希与内部版本。
-- [ ] 任一平台没有真实制品或校验失败时，不发布 1.4.15 为稳定版。
+- [x] 已生成包含三个真实制品 URL、大小、版本和 SHA-256 的 `latest.json`。
+- [x] GitHub Release 发布后已通过资产 API重新下载三个制品和清单，大小、SHA-256 和清单版本全部复核通过。
+- [x] 发布前已确认 Windows EXE、macOS DMG、Android APK 和 `latest.json` 四个真实资产齐全且校验通过。
 
 验收：GitHub Release 同时提供匹配的 Windows EXE、macOS DMG、Android APK 和 `latest.json`；Windows、Android完成真实更新，Mac 完成局域网手动升级。
 
